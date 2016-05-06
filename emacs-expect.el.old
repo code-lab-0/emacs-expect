@@ -1,0 +1,240 @@
+
+(require 'queue)
+(require 'deferred)
+(require 'dash)
+(require 'subr-x)
+
+
+;;; Emacs 24 has optional lexical binding, 
+;;; which can be enabled on a per-buffer basis.
+;;; https://www.emacswiki.org/emacs/LexicalBinding
+(setq lexical-binding t)
+
+
+;;; This expression make Emacs echo passwords in shell mode buffers,
+;;; here this is evaluated in order to be able to send password automatically. 
+(remove-hook 'comint-output-filter-functions
+			 'comint-watch-for-password-prompt)
+
+
+
+
+
+(set 'ee-queue (make-hash-table :test #'equal))
+(set 'ee-password (make-hash-table :test #'equal))
+
+
+
+
+(defun ee-persp ()
+  (interactive)
+  (progn
+	(delete-other-windows)
+	(let ((h (ceiling (* (window-height) 0.7)))
+		  (w (ceiling (* (window-width) 0.6))))
+	  (split-window 'nil w t)
+	  (split-window 'nil h 'nil))
+
+	(setq ee-window-list (window-list))
+	
+	(progn 
+	  (select-window (car (cdr ee-window-list)))
+	  (switch-to-buffer "*scratch*")
+	  (select-window (car (cdr (cdr ee-window-list))))
+	  (shell))))
+
+
+;;; http://ergoemacs.org/emacs/elisp_read_file_content.html
+(defun read-lines (filePath)
+  "Return a list of lines of a file at filePath."
+  (with-temp-buffer
+	(insert-file-contents filePath)
+	    (split-string (buffer-string) "\n" t)))
+
+
+(defun ee-get-password (name)
+  (gethash name ee-password))
+
+
+(defun ee-read-password (filePath)
+  (dolist (line (read-lines filePath))
+	(let* ((kv (split-string line "\t" t))
+		   (key (car kv))
+		   (value (cadr kv)))
+	  (puthash key value ee-password)))
+  )
+
+
+(ee-read-password "~/.emacs.d/ee-path.txt")
+
+(defun ee-run (buffer command-list)
+  (dolist (item command-list)
+	(cond ((stringp item) (ee buffer "\\$ $" item))
+		  ((listp item) (ee-send-password buffer item)))))
+
+
+(defun ee-send-password (buffer info)
+  (let* ((prompt (car info))
+		 (p (car (cdr info)))
+		 (password (if (listp p) (eval p) p))
+		 (invisible-p (car (cddr info))))
+	(ee buffer prompt password invisible-p)))
+
+
+(defun ee (buffer prompt command &optional invisible-p)
+  (ee-submit buffer prompt command invisible-p)
+  (if (not ee-running-p)
+	  (ee-start)))
+
+
+(defun ee-submit (buffer prompt command &optional invisible-p)
+  (if (not (gethash buffer ee-queue))
+	  (puthash buffer (make-queue) ee-queue))
+  (queue-enqueue 
+   (gethash buffer ee-queue)
+   (ee-make-queue-element prompt command invisible-p)))
+
+
+(defun ee-make-queue-element (prompt command &optional invisible-p)
+  (cons prompt (cons command (cons invisible-p '()))))
+
+
+(defun ee-clear-queue ()
+  (clrhash ee-queue))
+
+
+(defun ee-print-queue ()
+  (dolist (buffer (hash-table-keys ee-queue))
+	(insert "\n")
+	(insert (ee-print-commands buffer))))
+
+
+(defun ee-print-commands (buffer)
+  (let* ((elem-list (queue-all (gethash buffer ee-queue)))
+		 (command-list 
+		  (-map (lambda (elem)
+				  (concat
+				   "\"" (car elem) "\""
+				   " \"" (cadr elem) "\"")) elem-list)))
+	   
+	(-reduce
+	 'concat
+	 (-map (lambda (elem)
+			 (concat "(ee-submit \"" buffer "\" " elem ")\n")) command-list))))
+
+	
+(defun ee-shell-buffer-list ()
+  (hash-table-keys ee-queue))
+  
+
+(setq ee-running-p nil)
+
+(defun ee-start ()
+  (setq ee-running-p t)
+  (deferred:$
+	(deferred:next
+	  (lambda (x) (princ "ee is started")))
+	(deferred:nextc it
+	  (deferred:lambda (x)
+		(deferred:$
+		  (deferred:next
+			(lambda () 
+			  (dolist (buffer (hash-table-keys ee-queue))
+				(ee-send-input buffer))))
+		  (deferred:nextc it
+			(lambda () 
+			  (deferred:process "sh" "-c" "sleep 2")))
+		  (deferred:nextc it
+			(lambda () 
+			  (if (ee-queue-empty-p)
+				  (setq ee-running-p nil))))
+		  (if ee-running-p
+			  (deferred:nextc it self)
+			(progn 
+			  (princ "ee is stopped.")
+			  nil)))))))
+
+
+
+(defun ee-queue-empty-p ()
+  (let ((sum (-reduce '+ (-map 
+						  (lambda (buf) 
+							(if (queue-empty (gethash buf ee-queue)) 0 1))
+						  (hash-table-keys ee-queue)))))
+	(if (= sum 0) t nil)))
+	
+  
+
+(defun ee-stop ()
+  (setq ee-running-p nil))
+
+
+
+(defun ee-send-input (buffer)
+  (ignore-errors
+  (let* ((element (queue-first (gethash buffer ee-queue)))
+		 (prompt (car element))
+		 (command (car (cdr element)))
+		 (invisible-p (car (cddr element))))
+	
+	(if (ee-prompt-ready-p buffer prompt)
+		(progn
+		  (queue-dequeue (gethash buffer ee-queue))
+		  (set-buffer buffer)
+		  (if invisible-p
+			  (comint-send-string buffer (concat command "\n"))
+			(progn 
+			  (insert command)
+			  (comint-send-input))
+		  ))))))
+
+
+
+(defun ee-prompt-ready-p (buffer prompt)
+  (let* ((b (set-buffer buffer))
+		 (s (buffer-substring-no-properties 
+			 (max (- (point-max) 100) (point-min)) 
+			 (point-max) )))
+	;;(message s)
+	(if (string-match prompt s) t nil)))
+
+
+
+;;; -----
+
+(defun ee-open-buffer1 (buffer-name)
+  (interactive "sbuffer-name: \n")
+  (select-window (car ee-window-list))
+  (switch-to-buffer buffer-name))
+
+
+(defun ee-open-buffer2 (buffer-name)
+  (interactive "sbuffer-name: \n")
+  (select-window (car (cdr ee-window-list)))
+  (switch-to-buffer buffer-name))
+
+
+(defun ee-open-buffer3 (buffer-name)
+  (interactive "sbuffer-name: \n")
+  (select-window (car (cdr (cdr ee-window-list))))
+  (switch-to-buffer buffer-name))
+
+
+;;; -----
+
+(defun ee-open-shell-buffer (buf-name)
+  (interactive "sShell buffer name: \n")
+  (select-window (car (cdr (cdr ee-window-list))))
+  (shell)
+  (rename-buffer buf-name))
+
+
+(defun ee-scratch ()
+  (interactive)
+  (select-window (car (cdr ee-window-list)))
+  (switch-to-buffer "*scratch*"))
+
+
+
+(provide 'emacs-expect)
+
