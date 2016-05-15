@@ -2,34 +2,135 @@
 
 ;;; Emacs 24 has optional lexical binding, 
 ;;; which can be enabled on a per-buffer basis.
-;;; http://rubikitch.com/tag/require-cl%E5%95%8F%E9%A1%8C/  (in Japanese)
+
+;; -------------------------------------------------------------------------
+;; Emacs expect -- Asynchronous automatic operation of Emacs Shell buffers. 
+
+(defconst emacs-expect-version "1.0")
+
+;; Copyright (C) 2016 Osamu Ogasawara
+
+;; This program is free software; you can redistribute it and/or modify
+;; it under the terms of the GNU General Public License as published by
+;; the Free Software Foundation, either version 3 of the License, or
+;; (at your option) any later version.
+
+;; This program is distributed in the hope that it will be useful,
+;; but WITHOUT ANY WARRANTY; without even the implied warranty of
+;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+;; GNU General Public License for more details.
+
+;; You should have received a copy of the GNU General Public License
+;; along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 
-;; -------------------------------------------------------------
-;; Emacs expect -- Automatic and asynchronous operation of terminals.
-
-
-;;; Example Usage:
+;; --------------------------------------------------------------------------
+;; Installation
 ;;
-;; (ee:clear-queue)
+
+;; 1. Prerequisites
 ;;
-;; (ee:command "*shell*"  "\\$ $"  "ssh 192.168.1.7")
-;; (ee:password "*shell*" "password: $" "azure")
-;; (ee:command "*shell*"  "\\$ $" "sudo apt-get update")
-;; (ee-c:commands "*shell*" "sudo password"
-;; 			 '(
-;; 			  '("\\$ $" "")
-;; 			  '("password for [a-z]+:\\s+$" "azure" t)
-;; 			  ))
+;; - GNU Emacs ver 24.5 or higher.
+;; - GnuPG
+;;   - (for Mac OS X, https://gpgtools.org/ )
+;;
 
 
+;; 2. Install following packages on which the Emacs-Expect depends.
+
+;; Queue data structure
 (require 'queue)
-(require 'deferred)
+
+;; Asynchronous task management 
+;; https://github.com/kiwanami/emacs-deferred
+(require 'deferred) 
+
+;; A modern list api for Emacs.
+;; https://github.com/magnars/dash.el
 (require 'dash)
+
+;; Extra lisp functions 
 (require 'subr-x)
+
+;; PCRE to Emacs regular expression conversion
+;; https://github.com/joddie/pcre2el
 (require 'pcre2el)
 
+;; These packages can be installed with package.el which is bundled in Emacs 24 or higher.
+;; Before you install these packages, you need to add Marmalade and Melpa
+;; archives to the search list as follows.
+;;
+;; (require 'package)
+;; (add-to-list 'package-archives
+;; 			 '("marmalade" . "http://marmalade-repo.org/packages/"))
+;; (add-to-list 'package-archives
+;;              '("melpa" . "http://melpa.milkbox.net/packages/") t)
+;; (package-initialize)
 
+
+;; 3. Prepareing an encrypted password file.
+;;
+;; You need to make a ~/.emacs.d/ee-pass.txt file
+;; which consists of tab-delimited name and password pairs.
+;;
+;; --------- ee-pass.txt ------------
+;; server01    password-of-server01
+;; server02    password-of-server02
+;; ...
+;; ----------------------------------
+;; 
+;; After creating this file, open this file with Emacs,
+;; then encrypt it with M-x epa-encrypt-file.
+
+
+;;; ----------------------------------------------------------------------------
+;;; Example Usage:
+
+;; 1. A series of logging-in, virtual environment setting-up.
+;; (ee:persp)
+;; (ee:init)
+;; (ee:open-shell-buffer "*shell*(nig)")
+;; (setq buf "*shell*(nig)")
+;;
+;; (ee:command buf  "\\$ $"  "ssh -X gw2.ddbj.nig.ac.jp")
+;; (ee:command buf  "\\$ $"  "qlogin")
+;; (ee:password buf "password: $" "gw2") ; Here, gw2 is not password, but server-name.
+;; (ee:command buf  "\\$ $"  "cd ~/gentoo")
+;; (ee:command buf  "\\$ $"  "source ./startprefix")
+
+;; 2. shorter form of above.
+;;
+;; (ee:persp)
+;; (ee:init)
+;; (ee:open-shell-buffer "*shell*(nig)")
+;; (setq buf "*shell*(nig)") 
+;;
+;; (ee buf "\\$ $"
+;;   '("ssh -X gw2.ddbj.nig.ac.jp"
+;;     "qlogin"
+;;     '(ee:password buf "password: $" "gw2")
+;;     "cd ~/gentoo"
+;;     "source ./startprefix"))
+
+
+;; 3. sudo  ...
+;; sudo not always but sometimes requires password.
+;; In the following script, ee-c:commands waits for a set of prompt
+;; to send corresponding command to the specified buffer.
+;; If the first prompt (this case, "\\$ $") appeares,
+;; the ee-c:commands loop is exited.
+;; 
+;; (ee:command buf "\\$ $" "sudo apt-get --force-yes -y install r-cran-*")
+;; (ee-c:commands buf "sudo password input (if any)"
+;; 				 '(
+;; 				   '("\\$ $" "")
+;; 				   '("password for [a-z]+:\\s+$" "azure" t)
+;; 				   ))
+
+
+
+;;; ----------------------------------------------------------------------------
+;;;
 ;;; This expression make Emacs echo passwords in shell mode buffers,
 ;;; here this is evaluated in order to be able to send password automatically. 
 (remove-hook 'comint-output-filter-functions
@@ -338,9 +439,9 @@
 ;;;
 ;;; ========================================
 
-(defun ee (buffer job-list)
+(defun ee (buffer prompt job-list)
   (dolist (job job-list)
-	(cond ((stringp job) (ee:command buffer "\\$ $" job))
+	(cond ((stringp job) (ee:command buffer prompt job))
 		  ((listp job) (funcall (eval job))))))
 
 
@@ -397,7 +498,7 @@
 	  (puthash key value ee:password)))
   )
 
-(ee:read-password "~/.emacs.d/ee-path.txt")
+(ee:read-password "~/.emacs.d/ee-pass.txt.gpg")
 
 
 
