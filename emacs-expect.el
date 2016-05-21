@@ -593,7 +593,10 @@
 	  (switch-to-buffer "*scratch*")
 	  (other-window 1))))
 
-
+;;;
+;;; TODO: integrate with a kind of perspective modes.
+;;; http://rubikitch.com/2015/02/13/persp-mode/
+;;;
 (defun ee:open-shell-buffer (buf-name)
   (interactive "sShell buffer name: \n")
   (progn
