@@ -244,6 +244,13 @@
   (ee:clear-queue))
 
 
+(defun ee:initialize ()
+  (ee:load-password)
+  (ee:init))
+
+
+
+
 (defun ee:eval-qelem (qelem)
   (let* ((desc (car qelem))
 		(pred (car (cdr qelem)))
@@ -498,9 +505,8 @@
 	  (puthash key value ee:password)))
   )
 
-(ee:read-password "~/.emacs.d/ee-pass.txt.gpg")
-
-
+(defun ee:load-password ()
+  (ee:read-password "~/.emacs.d/ee-pass.txt.gpg"))
 
 
 
