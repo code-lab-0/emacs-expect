@@ -6,7 +6,7 @@
 ;; -------------------------------------------------------------------------
 ;; Emacs expect -- Asynchronous automatic operation of Emacs Shell buffers. 
 
-(defconst emacs-expect-version "1.0")
+(defconst emacs-expect-version "1.01")
 
 ;; Copyright (C) 2016 Osamu Ogasawara
 
@@ -37,6 +37,8 @@
 
 
 ;; 2. Install following packages on which the Emacs-Expect depends.
+
+(require 'cl-lib)
 
 ;; Queue data structure
 (require 'queue)
@@ -210,9 +212,17 @@
 			  
 			  (dolist (buffer (hash-table-keys ee:queue))
 				(let* ((q (gethash buffer ee:queue))
-					   (elem (if q (queue-first q) nil)))
+					   (elem (if q (queue-first q) nil))
+					   (desc (car qelem))
+					   (pred (car (cdr qelem)))
+					   (action (car (cddr qelem)))					   
+					   (pred-result (if pred (funcall pred) nil)))
 
-				  (ee:eval-qelem elem)))))
+				  (if pred-result
+					  (progn
+						(funcall action)
+						(queue-dequeue (gethash buffer ee:queue))))))))
+
 
 		  ;; (deferred:nextc it
 		  ;; 	(lambda ()
@@ -239,19 +249,24 @@
   (setq ee:running-p nil))
 
 
+(defun ee:initialize()
+  (ee:load-pass)
+  (ee:init))
+
+
 (defun ee:init ()
   (ee:stop)
   (ee:clear-queue))
 
 
-(defun ee:eval-qelem (qelem)
-  (let* ((desc (car qelem))
-		(pred (car (cdr qelem)))
-		(action (car (cddr qelem)))
-		(result (if pred (funcall pred) nil)))
+;; (defun ee:eval-qelem (qelem)
+;;   (let* ((desc (car qelem))
+;; 		(pred (car (cdr qelem)))
+;; 		(action (car (cddr qelem)))
+;; 		(result (if pred (funcall pred) nil)))
 
-	(if result (funcall action))
-	result))
+;; 	(if result (funcall action))
+;; 	result))
 
 
 
@@ -329,120 +344,103 @@
 ;;; ========================================
 
 ;;; Here, an automaton consists of
-;;; 1. (pred action) list
+;;; 1. (state pred action next-state) triads list.
 ;;; 2. current state
-;;; 3. In general, we also need start state and end (accept) state.
+;;; 3. accept-states
 
-;;; predicates and actions.
-(set 'ee-c:automaton-state (make-hash-table :test #'equal))
+;;; Usage of defstruct in Emacs-Lisp.
+;;; https://curiousprogrammer.wordpress.com/2010/07/19/emacs-defstruct-vs-other-languages/
+;; (defstruct person age name)
+;; (defvar dave (make-person))
+;; (setf (person-age dave) 20) ;; getter specifies the type!
+;; (setf (person-name dave) "David Jones")
+;; (message (person-name dave)) ;; -- David Jones
 
-(defun ee-c:action:init-automaton (buffer)
+(defstruct automaton
+  (current-state 0)
+  (accept-states '())
+  (machine '()))
+
+
+;;; An example of the automaton
+
+(setq ee:automaton:machine-example
+	  '((0  (ee:pred:prompt buf "\\$ $")
+			(ee:action:trivial) 1)
+		(0  (ee:pred:prompt buf "(y/n) $")
+			(ee:action:send-input buf "Y") 0)
+		(0  (ee:pred:prompt buf "password: $")
+			(ee:action:password buf "your-password") 0)))
+
+
+;; (defun ee:automaton:instanciate (machine accept)
+;;   (let* ((automaton make-automaton))
+
+(defun ee:automaton:make-instance (machine accept)
+  (let* ((automaton (make-automaton))
+		 ((automatnon-accept-states automaton) accept)
+		 ((automaton-machine automaton) machine))
+	automaton))
+					
+
+(defun ee:automaton:print (automaton)
+  (list 
+
+
+
+;;; The symbol "ee-c:automaton-state" refers to
+;;; a hash table of buffer-name => state correspondance,
+;;; where the states are integers.
+(set 'ee:automaton:automaton-current-state (make-hash-table :test #'equal))
+(set 'ee:automaton:automaton-accept-state (make-hash-table :test #'equal))
+
+;;; An automaton is a list of (predicate  action) pairs.
+;;; Here, predicate and function are closures.
+
+;;; The following three closure functions are
+;;; the most fundamental.
+;;; (ee:pred:prompt buf str)
+
+(defun ee:action:send-input (buffer str)
   (lambda ()
-	(puthash buffer 0 ee-c:automaton-state)
-	(queue-dequeue (gethash buffer ee:queue))))
-
-(defun ee-c:action:command (buffer command state list-length)
-  (lambda ()
-	(ee:send-input buffer command)
-	(ee-c:next-state buffer state list-length)))
+	(ee:send-input buffer str))) 
 
 
-(defun ee-c:action:password (buffer host state list-length)
+(defun ee:action:password (buffer password)
   (lambda ()
 	(set-buffer buffer)
-	(comint-send-string buffer (concat (ee:get-password host) "\n"))
-	(ee-c:next-state buffer state list-length)))
+	(comint-send-string buffer (concat password "\n"))))
+
+  
 
 
-(defun ee-c:action:dequeue (buffer)
-  (lambda ()
-	(queue-dequeue (gethash buffer ee:queue))))
+(defun ee:automaton:automaton-pred (buffer machine)
+  (ee:automaton:transite buffer machine)
+  (ee:automaton:accept-p buffer))
 
 
-(defun ee-c:next-state (buffer state list-length)
-	(let* ((ns (+ state 1))
-		   (next-state (if (>= ns list-length) 0 ns)))
-	  (puthash buffer next-state ee-c:automaton-state)))
-
-
-(defun ee-c:get-state (buffer)
-  (gethash buffer ee-c:automaton-state))
-
-
-(defun ee-c:create-automaton (buffer prompt-command-list)
-  (let* ((list-length (length prompt-command-list))
-		 (queue (make-queue)))
-
-	(dotimes (i list-length)
-	  (let* ((pair (cadr (nth i prompt-command-list)))
-			 (pred (car pair))
-			 (command (cadr pair))
-			 (invisible-p (car (cddr pair))))
-
-		(if invisible-p
-			(queue-enqueue queue
-						   (list
-							(ee:pred:prompt buffer pred)
-							(ee-c:action:password buffer command i list-length)))
+(defun ee:automaton:transite (buffer machine)
+  (catch 'break
+	(dolist (item machine)
+	  (let* ((state (nth 0 item))
+			 (pred (nth 1 item))
+			 (action (nth 2 item))
+			 (next-state (nth 3 item)))
+		(if (= (ee:automaton:current-state buf) state)
+			(if (funcall pred)
+				(progn
+				  (funcall action)
+				  (ee:automaton:set-current-state buf next-state)
+				  (throw 'break) ;; break
+				  )))))))
 	  
-		  (queue-enqueue queue
-						 (list
-						  (ee:pred:prompt buffer pred)
-						  (ee-c:action:command buffer command i list-length))))
-		))
 
-	(queue-all queue)))
-
-
-   
-(defun ee-c:pred:accept (buffer machine)
-  (lambda ()
-	(let* ((state (ee-c:get-state buffer))
-		   (len   (length machine))
-		   (elem  (nth state machine))
-		   (pred  (car elem))
-		   (action (cadr elem))
-		   (pred-result (funcall pred))
-		   (result (if (and (= state 0)) pred-result)))
-
-	  (if pred-result
-		  (funcall action)
-		(ee-c:next-state buffer state len))
-
-	  result)))
-
-
-;;; job submission utilities.
-
-
-(defun ee-c:submit-commands (buffer desc list-of-pairs)
-  (let ((machine (ee-c:create-automaton buffer list-of-pairs)))
-	(ee:submit buffer (concat desc "(init)")
-			   (ee:pred:trivial)
-			   (ee-c:action:init-automaton buffer))
-	(ee:submit buffer desc
-			   (ee-c:pred:accept buffer machine)
-			   (ee-c:action:dequeue buffer))))
-
-
-
-(defun ee-c:commands (buffer desc list-of-pairs)
-  (ee-c:submit-commands buffer desc list-of-pairs)
-  (if (not ee:running-p)
-	  (ee:start)))
+(defun ee:automaton:accept-p (buffer)
+  (let* ((current-state (gethash buffer ee:automaton:automaton-current-state))
+		 (accept-states (gethash buffer ee:automaton:automaton-accept-state)))
 	
-
-;;; ========================================
-;;;
-;;;   Job submission utilities
-;;;   (3) Yet another job submission function.
-;;;
-;;; ========================================
-
-(defun ee (buffer prompt job-list)
-  (dolist (job job-list)
-	(cond ((stringp job) (ee:command buffer prompt job))
-		  ((listp job) (funcall (eval job))))))
+		 (memq current-state accept-state)))
+				  
 
 
 
@@ -474,6 +472,9 @@
 (defun ee:get-password (name)
   (gethash name ee:password))
 
+(defun ee:set-password (name pass)
+  (pushhash name pass ee:password))
+
 
 (defun ee:send-password (buffer host)
   (set-buffer buffer)
@@ -498,7 +499,11 @@
 	  (puthash key value ee:password)))
   )
 
-(ee:read-password "~/.emacs.d/ee-pass.txt.gpg")
+
+(defun ee:load-password ()
+  (ee:read-password "~/.emacs.d/ee-pass.txt.gpg"))
+
+(ee:load-password)
 
 
 
@@ -531,108 +536,7 @@
 ;; 		 (password (if (listp p) (eval p) p))
 ;; 		 (invisible-p (car (cddr info))))
 ;; 	(ee buffer prompt password invisible-p)))
-
 	
-  
-
-	
-  
-
-
-
-
-
-
-
-;;; ==============================
-;;;
-;;;   Perspectives
-;;;
-;;; ==============================
-
-(defun ee:persp ()
-  (interactive)
-  (progn
-	(delete-other-windows)
-	(let ((h (ceiling (* (window-height) 0.7)))
-		  (w (ceiling (* (window-width) 0.6))))
-	  (split-window 'nil w t)
-	  (split-window 'nil h 'nil)
-	  (other-window 3))
-
-	(setq ee:window-list (window-list))
-	
-	(progn
-	  (other-window 1)
-	  (switch-to-buffer "*scratch*")
-	  (other-window 1)
-	  (shell)
-	  (other-window 1)
-	  )))
-
-
-(defun ee:persp2 ()
-  (interactive)
-  (progn 
-	(delete-other-windows)
-	(let ((h1 (ceiling (* (window-height) 0.5)))
-		  (h2 (ceiling (* (window-height) 0.7)))
-		  (w (ceiling (* (window-width) 0.6))))
-	  (split-window 'nil w t)
-	  (split-window 'nil h1 'nil)
-	  (select-window (car (cddr (window-list))))
-	  (split-window 'nil h2 'nil)
-	  (other-window 2))
-
-	(setq ee:window-list (window-list))
-	
-	(progn 
-	  (other-window 2)
-	  (shell)
-	  (other-window 1)
-	  (switch-to-buffer "*scratch*")
-	  (other-window 1))))
-
-
-(defun ee:open-shell-buffer (buf-name)
-  (interactive "sShell buffer name: \n")
-  (progn
-	(other-window 1)
-	(shell)
-	(rename-buffer buf-name)
-	(other-window 2)))
-
-;;; ---
-
-(defun ee:open-on-buffer1 (buffer-name)
-  (interactive "sbuffer-name: \n")
-  (select-window (car ee:window-list))
-  (switch-to-buffer buffer-name))
-
-
-(defun ee:open-on-buffer2 (buffer-name)
-  (interactive "sbuffer-name: \n")
-  (select-window (car (cdr ee:window-list)))
-  (switch-to-buffer buffer-name))
-
-
-(defun ee:open-on-buffer3 (buffer-name)
-  (interactive "sbuffer-name: \n")
-  (select-window (car (cdr (cdr ee:window-list))))
-  (switch-to-buffer buffer-name))
-
-
-(defun ee:open-on-buffer4 (buffer-name)
-  (interactive "sbuffer-name: \n")
-  (select-window (car (cdr (cddr ee:window-list))))
-  (switch-to-buffer buffer-name))
-
-
-(defun ee:shell-buffer-list ()
-  (hash-table-keys ee:queue))
-
-
-
 ;;; ----------
 
 (provide 'emacs-expect)
