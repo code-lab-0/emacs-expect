@@ -259,11 +259,15 @@
   (ee:clear-queue))
 
 
-;; (defun ee:eval-qelem (qelem)
-;;   (let* ((desc (car qelem))
-;; 		(pred (car (cdr qelem)))
-;; 		(action (car (cddr qelem)))
-;; 		(result (if pred (funcall pred) nil)))
+(defun ee:initialize ()
+  (ee:load-password)
+  (ee:init))
+
+(defun ee:eval-qelem (qelem)
+  (let* ((desc (car qelem))
+		(pred (car (cdr qelem)))
+		(action (car (cddr qelem)))
+		(result (if pred (funcall pred) nil)))
 
 ;; 	(if result (funcall action))
 ;; 	result))
@@ -503,9 +507,7 @@
 (defun ee:load-password ()
   (ee:read-password "~/.emacs.d/ee-pass.txt.gpg"))
 
-(ee:load-password)
-
-
+;;(ee:load-password)
 
 
 
