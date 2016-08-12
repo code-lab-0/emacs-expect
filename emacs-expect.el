@@ -6,7 +6,7 @@
 ;; -------------------------------------------------------------------------
 ;; Emacs expect -- Asynchronous automatic operation of Emacs Shell buffers. 
 
-(defconst emacs-expect-version "1.01")
+(defconst emacs-expect-version "1.10")
 
 ;; Copyright (C) 2016 Osamu Ogasawara
 
@@ -35,9 +35,20 @@
 ;;   - (for Mac OS X, https://gpgtools.org/ )
 ;;
 
-
 ;; 2. Install following packages on which the Emacs-Expect depends.
+;;
+;; Before you install these packages (by using package.el),
+;; you need to add Marmalade and Melpa
+;; archives to the search list as follows.
+;;
+;; (require 'package)
+;; (add-to-list 'package-archives
+;; 			 '("marmalade" . "http://marmalade-repo.org/packages/"))
+;; (add-to-list 'package-archives
+;;              '("melpa" . "http://melpa.milkbox.net/packages/") t)
+;; (package-initialize)
 
+;; Common Lisp extensions for Emacs.
 (require 'cl-lib)
 
 ;; Queue data structure
@@ -58,76 +69,64 @@
 ;; https://github.com/joddie/pcre2el
 (require 'pcre2el)
 
-;; These packages can be installed with package.el which is bundled in Emacs 24 or higher.
-;; Before you install these packages, you need to add Marmalade and Melpa
-;; archives to the search list as follows.
-;;
-;; (require 'package)
-;; (add-to-list 'package-archives
-;; 			 '("marmalade" . "http://marmalade-repo.org/packages/"))
-;; (add-to-list 'package-archives
-;;              '("melpa" . "http://melpa.milkbox.net/packages/") t)
-;; (package-initialize)
 
 
 ;; 3. Prepareing an encrypted password file.
 ;;
-;; You need to make a ~/.emacs.d/ee-pass.txt file
+;; You need to make a ~/.emacs.d/inventory.txt file
 ;; which consists of tab-delimited name and password pairs.
 ;;
 ;; --------- ee-pass.txt ------------
-;; server01    password-of-server01
-;; server02    password-of-server02
+;; your-account@server01    password-of-server01
+;; your-account@server02    password-of-server02
 ;; ...
 ;; ----------------------------------
 ;; 
 ;; After creating this file, open this file with Emacs,
 ;; then encrypt it with M-x epa-encrypt-file.
+;; https://www.gnu.org/software/emacs/manual/html_mono/epa.html
 
 
 ;;; ----------------------------------------------------------------------------
-;;; Example Usage:
+;;; Usage
 
-;; 1. A series of logging-in, virtual environment setting-up.
-;; (ee:persp)
-;; (ee:init)
-;; (ee:open-shell-buffer "*shell*(nig)")
-;; (setq buf "*shell*(nig)")
-;;
-;; (ee:command buf  "\\$ $"  "ssh -X gw2.ddbj.nig.ac.jp")
-;; (ee:command buf  "\\$ $"  "qlogin")
-;; (ee:password buf "password: $" "gw2") ; Here, gw2 is not password, but server-name.
-;; (ee:command buf  "\\$ $"  "cd ~/gentoo")
-;; (ee:command buf  "\\$ $"  "source ./startprefix")
-
-;; 2. shorter form of above.
-;;
-;; (ee:persp)
-;; (ee:init)
-;; (ee:open-shell-buffer "*shell*(nig)")
-;; (setq buf "*shell*(nig)") 
-;;
-;; (ee buf "\\$ $"
-;;   '("ssh -X gw2.ddbj.nig.ac.jp"
-;;     "qlogin"
-;;     '(ee:password buf "password: $" "gw2")
-;;     "cd ~/gentoo"
-;;     "source ./startprefix"))
-
-
-;; 3. sudo  ...
-;; sudo not always but sometimes requires password.
-;; In the following script, ee-c:commands waits for a set of prompt
-;; to send corresponding command to the specified buffer.
-;; If the first prompt (this case, "\\$ $") appeares,
-;; the ee-c:commands loop is exited.
+;; 1. Load the packages.
 ;; 
-;; (ee:command buf "\\$ $" "sudo apt-get --force-yes -y install r-cran-*")
-;; (ee-c:commands buf "sudo password input (if any)"
-;; 				 '(
-;; 				   '("\\$ $" "")
-;; 				   '("password for [a-z]+:\\s+$" "azure" t)
-;; 				   ))
+;; (require 'ee-persp)
+;; (require 'emacs-expect)
+
+;; 2. Create a set of windows (perspective).
+;;
+;; (ee-persp) 
+
+;; 3. Showing a shell buffer on a window.
+;;
+;; (ee-shell "*shell*(mac:1)")
+;;
+;; ;; TIP: This function prints a list of shell buffers which have been opened.
+;; (ee-shell-buffer-list) 
+;;
+
+;; 4. Send a command to a shell buffer.
+;;
+;; (ee-run "*shell*(mac:1)" "\\$ $" "ls -F")
+
+;; 5. Login to other hosts.
+;;
+;; (ee-inventory-load)
+;;
+;; ;; TIP: This function prints a list of user-name@host information loaded.
+;; (ee-inventory-print) 
+;;
+;; (setq buf "*shell*(nig:1)")
+;; (ee-shell buf)
+;;
+;; (ee-run buf  "\\$ $"  "ssh -X gw2.ddbj.nig.ac.jp")
+;; (ee-run buf  "\\$ $"  "qlogin")
+;; ;; Send a password to the buffer.
+;; (ee-run buf "password: $" "your-account@gw2" 't) 
+;; (ee-run buf  "\\$ $"  "cd ~/gentoo")
+;; (ee-run buf  "\\$ $"  "./startprefix")
 
 
 
@@ -139,7 +138,6 @@
 			 'comint-watch-for-password-prompt)
 
 
-
 ;;; ==============================
 ;;;
 ;;;   Job Queue
@@ -147,46 +145,53 @@
 ;;; ==============================
 
 
-;;; eq:queue is a hash table which keeps information of
-;;; buffer-name => a queue of (list desc pred action) elements.
-(set 'ee:queue (make-hash-table :test #'equal))
+;;; ee-queue is a hash table which keeps information of
+;;; buffer-name => a queue of (list desc pred action) lists.
+(set 'ee-queue (make-hash-table :test #'equal))
 
 
-(defun ee:submit (buffer desc pred action)
-  "This function submit a job to the job queue (ee:queue)."
-  (if (not (gethash buffer ee:queue))
-	  (puthash buffer (make-queue) ee:queue))
+(defun ee-queue-submit (buffer desc pred action)
+  "This function submit a job to the job queue (ee-queue)."
+  (if (not (gethash buffer ee-queue))
+	  (puthash buffer (make-queue) ee-queue))
 
-  (queue-enqueue (gethash buffer ee:queue) (list desc pred action)))
-
-
-(defun ee:clear-queue ()
-  (clrhash ee:queue))
+  (queue-enqueue (gethash buffer ee-queue) (list desc pred action)))
 
 
-(defun ee:print-queue ()
-  (dolist (buffer (hash-table-keys ee:queue))
-	(insert "\n")
-	(insert (ee:print-qelems buffer))))
+(defun ee-queue-clear (buffer)
+  (queue-clear (gethash buffer ee-queue)))
 
 
-(defun ee:print-qelems (buffer)
-  (let* ((elem-list (queue-all (gethash buffer ee:queue))))
+(defun ee-queue-clear-all ()
+  (clrhash ee-queue))
+
+
+(defun ee-queue-dequeue (buf)
+  (queue-dequeue (gethash buffer ee-queue)))
+
+
+(defun ee-queue-print-buffers ()
+  (hash-table-keys ee-queue))
+
+
+(defun ee-queue-print (buffer)
+  (let* ((elem-list (queue-all (gethash buffer ee-queue))))
 	(dolist (elem elem-list)
 	  (insert
 	   (concat buffer "\t" (car elem) "\n")))))
 
 
 
-(defun ee:queue-length ()
+;;; This function is used in ee-start function
+;;; to judge whether ee-queue is totally empty or not.
+(defun ee-queue-total-length ()
   (let ((sum
 		 (-reduce
 		  '+
 		  (-map 
 		   (lambda (buf) 
-			 (if (queue-empty (gethash buf ee:queue)) 0 1))
-		   (hash-table-keys ee:queue)))))
-
+			 (if (queue-empty (gethash buf ee-queue)) 0 1))
+		   (hash-table-keys ee-queue)))))
 	sum))
 
 
@@ -197,10 +202,13 @@
 ;;;
 ;;; ==============================
 
-(setq ee:running-p nil)
+;;; ee-running-p definition.
+(if (not (boundp 'ee-running-p))
+	(setq ee-running-p nil))
 
-(defun ee:start ()
-  (setq ee:running-p t)
+
+(defun ee-start ()
+  (setq ee-running-p t)
   (deferred:$
 	(deferred:next
 	  (lambda (x) (princ "ee is started")))
@@ -210,9 +218,10 @@
 		  (deferred:next
 			(lambda ()
 			  
-			  (dolist (buffer (hash-table-keys ee:queue))
-				(let* ((q (gethash buffer ee:queue))
-					   (elem (if q (queue-first q) nil))
+			  (dolist (buffer (hash-table-keys ee-queue))
+				(message buffer)
+				(let* ((q (gethash buffer ee-queue))
+					   (qelem (if q (queue-first q) nil))
 					   (desc (car qelem))
 					   (pred (car (cdr qelem)))
 					   (action (car (cddr qelem)))					   
@@ -221,7 +230,7 @@
 				  (if pred-result
 					  (progn
 						(funcall action)
-						(queue-dequeue (gethash buffer ee:queue))))))))
+						(queue-dequeue (gethash buffer ee-queue))))))))
 
 
 		  ;; (deferred:nextc it
@@ -235,9 +244,9 @@
 		  ;; 	  (princ "***")))
 		  (deferred:nextc it
 			(lambda () 
-			  (if (= (ee:queue-length) 0)
-				  (setq ee:running-p nil))))
-		  (if ee:running-p
+			  (if (= (ee-queue-total-length) 0)
+				  (setq ee-running-p nil))))
+		  (if ee-running-p
 			  (deferred:nextc it self)
 			(progn 
 			  (princ "ee is stopped.")
@@ -245,32 +254,14 @@
 		  )))))
 
 
-(defun ee:stop ()
-  (setq ee:running-p nil))
+(defun ee-stop ()
+  (setq ee-running-p nil))
 
 
-(defun ee:initialize()
-  (ee:load-pass)
-  (ee:init))
+(defun ee-init ()
+  (ee-stop)
+  (ee-queue-clear-all))
 
-
-(defun ee:init ()
-  (ee:stop)
-  (ee:clear-queue))
-
-
-(defun ee:initialize ()
-  (ee:load-password)
-  (ee:init))
-
-(defun ee:eval-qelem (qelem)
-  (let* ((desc (car qelem))
-		(pred (car (cdr qelem)))
-		(action (car (cddr qelem)))
-		(result (if pred (funcall pred) nil)))
-
-;; 	(if result (funcall action))
-;; 	result))
 
 
 
@@ -281,62 +272,63 @@
 ;;;
 ;;; ========================================
 
-;;; predicates and actions.
-
-(defun ee:pred:trivial ()
-  (lambda () t))
-
-
-(defun ee:pred:prompt (buffer prompt)
-  (lambda ()
-	(string-match
-	 (rxt-pcre-to-elisp prompt)
-	 (ee:tail-chars 100 buffer))))
-
-
-(defun ee:action:command (buffer command)
-  (lambda ()
-	(ee:send-input buffer command)
-	(queue-dequeue (gethash buffer ee:queue))))
-
-
-(defun ee:action:password (buffer host)
-  (lambda ()
-	(set-buffer buffer)
-	(comint-send-string buffer (concat (ee:get-password host) "\n"))
-	(queue-dequeue (gethash buffer ee:queue))))
-
-
-;;; job submission utilities.
-
-(defun ee:submit-command (buffer prompt command)
-  (ee:submit buffer
-			 command
-			 (ee:pred:prompt buffer prompt)
-			 (ee:action:command buffer command)))
-
-
-(defun ee:submit-password (buffer prompt host)
-  (ee:submit buffer
-			 "********"
-			 (ee:pred:prompt buffer prompt)
-			 (ee:action:password buffer host)))
-
 
 ;;; submit and start functions.
 
-(defun ee:command (buffer prompt command)
-  (ee:submit-command buffer prompt command)
-  (if (not ee:running-p)
-	  (ee:start)))
+(defun ee-run (buffer prompt string &rest password-p)
+  (if (not password-p)
+	  (ee-send-command buffer prompt string)
+	(ee-send-password buffer prompt string)))
 
 
-(defun ee:password (buffer prompt host)
-  (ee:submit-password buffer prompt  host)
-  (if (not ee:running-p)
-	  (ee:start)))
+(defun ee-send-command (buffer prompt command)
+  (ee-queue-submit
+   buffer
+   command
+   (ee-pred-match-prompt buffer prompt)
+   (ee-action-send-command buffer command))
+  (if (not ee-running-p)
+	  (ee-start)))
 
 
+(defun ee-send-password (buffer prompt account)
+  (ee-queue-submit buffer
+			 "********"
+			 (ee-pred-match-prompt buffer prompt)
+			 (ee-action-send-password buffer account))
+
+  (if (not ee-running-p)
+	  (ee-start)))
+
+
+
+;;; ========================================
+;;; predicates and actions.
+;;; ========================================
+
+(defun ee-pred-true ()
+  (lambda () t))
+
+
+(defun ee-pred-match-prompt (buffer prompt)
+  (lambda ()
+	(string-match
+	 (rxt-pcre-to-elisp prompt)
+	 (ee-buffer-tail-chars 100 buffer))))
+
+
+
+(defun ee-action-send-command (buffer command)
+  (lambda ()
+	(ee-buffer-send-input buffer command)))
+
+
+(defun ee-action-send-password (buffer inventory)
+  (lambda ()
+	(set-buffer buffer)
+	(comint-send-string
+	 buffer
+	 (concat (ee-inventory-get-password inventory) "\n"))))
 
 
 
@@ -351,6 +343,7 @@
 ;;; 1. (state pred action next-state) triads list.
 ;;; 2. current state
 ;;; 3. accept-states
+
 
 ;;; Usage of defstruct in Emacs-Lisp.
 ;;; https://curiousprogrammer.wordpress.com/2010/07/19/emacs-defstruct-vs-other-languages/
@@ -368,80 +361,48 @@
 
 ;;; An example of the automaton
 
-(setq ee:automaton:machine-example
-	  '((0  (ee:pred:prompt buf "\\$ $")
-			(ee:action:trivial) 1)
-		(0  (ee:pred:prompt buf "(y/n) $")
-			(ee:action:send-input buf "Y") 0)
-		(0  (ee:pred:prompt buf "password: $")
-			(ee:action:password buf "your-password") 0)))
+(setq ee-automaton-machine-example
+	  '((0  (ee-pred-match-prompt buf "\\$ $")
+			(ee-action-true) 1)
+		(0  (ee-pred-match-prompt buf "(y/n) $")
+			(ee-action-send-input buf "Y") 0)
+		(0  (ee-pred-match-prompt buf "password- $")
+			(ee-action-password buf "your-password") 0)))
 
 
-;; (defun ee:automaton:instanciate (machine accept)
-;;   (let* ((automaton make-automaton))
-
-(defun ee:automaton:make-instance (machine accept)
-  (let* ((automaton (make-automaton))
-		 ((automatnon-accept-states automaton) accept)
-		 ((automaton-machine automaton) machine))
-	automaton))
-					
-
-(defun ee:automaton:print (automaton)
-  (list 
+(defun ee-automaton-make-instance (machine accept)
+  (make-automaton :current-state 0 :accept-states accept :machine machine))
 
 
 
-;;; The symbol "ee-c:automaton-state" refers to
-;;; a hash table of buffer-name => state correspondance,
-;;; where the states are integers.
-(set 'ee:automaton:automaton-current-state (make-hash-table :test #'equal))
-(set 'ee:automaton:automaton-accept-state (make-hash-table :test #'equal))
+;;;
+;;;
+;;;
 
-;;; An automaton is a list of (predicate  action) pairs.
-;;; Here, predicate and function are closures.
-
-;;; The following three closure functions are
-;;; the most fundamental.
-;;; (ee:pred:prompt buf str)
-
-(defun ee:action:send-input (buffer str)
-  (lambda ()
-	(ee:send-input buffer str))) 
+(defun ee-automaton-automaton-pred (machine)
+  (ee-automaton-transite machine)
+  (ee-automaton-accept-p machine))
 
 
-(defun ee:action:password (buffer password)
-  (lambda ()
-	(set-buffer buffer)
-	(comint-send-string buffer (concat password "\n"))))
-
-  
-
-
-(defun ee:automaton:automaton-pred (buffer machine)
-  (ee:automaton:transite buffer machine)
-  (ee:automaton:accept-p buffer))
-
-
-(defun ee:automaton:transite (buffer machine)
+(defun ee-automaton-transite (machine)
   (catch 'break
 	(dolist (item machine)
 	  (let* ((state (nth 0 item))
 			 (pred (nth 1 item))
 			 (action (nth 2 item))
 			 (next-state (nth 3 item)))
-		(if (= (ee:automaton:current-state buf) state)
+		(if (= (automaton-current-state machine) state)
 			(if (funcall pred)
 				(progn
 				  (funcall action)
-				  (ee:automaton:set-current-state buf next-state)
+				  (setf (automaton-current-state machine) next-state)
 				  (throw 'break) ;; break
 				  )))))))
 	  
 
-(defun ee:automaton:accept-p (buffer)
-  (let* ((current-state (gethash buffer ee:automaton:automaton-current-state))
-		 (accept-states (gethash buffer ee:automaton:automaton-accept-state)))
+(defun ee-automaton-accept-p (machine)
+  (let* ((current-state (automaton-current-state machine))
+		 (accept-states (automaton-accept-states machine)))
 	
 		 (memq current-state accept-state)))
 				  
@@ -455,89 +416,63 @@
 ;;; ==============================
 
 
-(defun ee:tail-chars (num-chars buffer)
+(defun ee-buffer-tail-chars (num-chars buffer)
   (set-buffer buffer)
   (buffer-substring-no-properties 
    (max (- (point-max) 100) (point-min)) 
    (point-max) ))
 
 
-(defun ee:send-input (buffer command)
+(defun ee-buffer-send-input (buffer command)
   (set-buffer buffer)
   (insert command)
   (comint-send-input))
 
-;;;
-;;;   password
-;;;
 
-(set 'ee:password (make-hash-table :test #'equal))
+;;; ========================================
+;;;   inventory
+;;;   A map of username@host => password
+;;; ========================================
 
-(defun ee:get-password (name)
-  (gethash name ee:password))
+(set 'ee-inventory (make-hash-table :test #'equal))
 
-(defun ee:set-password (name pass)
-  (pushhash name pass ee:password))
+(defun ee-inventory-get-password (account)
+  (gethash account ee-inventory))
 
-
-(defun ee:send-password (buffer host)
-  (set-buffer buffer)
-  (comint-send-string buffer (concat (ee:get-password host) "\n")))
+(defun ee-inventory-set-password (account password)
+  (pushhash account password ee-inventory))
 
 
 ;;; ---
 
 ;;; http://ergoemacs.org/emacs/elisp_read_file_content.html
-(defun read-lines (filePath)
+(defun ee-file-read-lines (filePath)
   "Return a list of lines of a file at filePath."
   (with-temp-buffer
 	(insert-file-contents filePath)
 	    (split-string (buffer-string) "\n" t)))
 
 
-(defun ee:read-password (filePath)
-  (dolist (line (read-lines filePath))
+(defun ee-inventory-read-file (filePath)
+  (dolist (line (ee-file-read-lines filePath))
 	(let* ((kv (split-string line "\t" t))
 		   (key (car kv))
 		   (value (cadr kv)))
-	  (puthash key value ee:password)))
+	  (puthash key value ee-inventory)))
   )
 
+(defun ee-inventory-clear()
+  (clrhash ee-inventory))
 
-(defun ee:load-password ()
-  (ee:read-password "~/.emacs.d/ee-pass.txt.gpg"))
-
-;;(ee:load-password)
-
-
-
-;;; ======================================
-;;;
-;;;   Execution : Higher level functions
-;;;
-;;; ======================================
+(defun ee-inventory-load ()
+  (ee-inventory-read-file "~/.emacs.d/inventory.txt.gpg"))
 
 
-;; (defun ee:run (buffer command-list)
-;;   (dolist (item command-list)
-;; 	(cond ((stringp item) (ee buffer "\\$ $" item))
-;; 		  ((listp item) (ee:send-password buffer item)))))
+(defun ee-inventory-print ()
+  (dolist (account (hash-table-keys ee-inventory))
+	(insert "\n")
+	(insert account)))
 
-
-
-;; (defun ee (buffer prompt command &optional invisible-p)
-;;   (ee:submit buffer prompt command invisible-p)
-;;   (if (not ee:running-p)
-;; 	  (ee:start)))
-
-
-
-;; (defun ee:send-password (buffer info)
-;;   (let* ((prompt (car info))
-;; 		 (p (car (cdr info)))
-;; 		 (password (if (listp p) (eval p) p))
-;; 		 (invisible-p (car (cddr info))))
-;; 	(ee buffer prompt password invisible-p)))
 	
 ;;; ----------
 
