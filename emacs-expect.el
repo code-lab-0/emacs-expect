@@ -364,7 +364,7 @@
 
 ;; An example of the simple automaton:
 ;;
-;; (setq an-example-machine
+;; (ee-automaton-run "*shell*" "an example of the simple automaton"
 ;; 	  (ee-automaton-make-instance
 ;; 	   ;; transition table
 ;; 	   (list
@@ -448,6 +448,8 @@
 
 
 (defun ee-automaton-run (buffer desc machine)
+  ;; initialize the machine before submit it to the ee-queue.
+  (setf (automaton-current-rule machine) 0) 
   (ee-queue-submit buffer desc
 				   (ee-automaton-pred machine)
 				   (ee-action-true))
