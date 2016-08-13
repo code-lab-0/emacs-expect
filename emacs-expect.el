@@ -130,6 +130,25 @@
 
 
 
+(defun ee-info-running-p ()
+  (if ee-running-p "Running" "Stopped"))
+
+
+(defun ee-info-keys-of-ee-queue ()
+  (mapconcat 'identity (hash-table-keys ee-queue) ", "))
+
+(defun ee-info-ee-queue ()
+  (dolist (buffer (hash-table-keys ee-queue))
+	(insert (concat "\n  " buffer " : " (queue-length (gethash buffer ee-queue))))))
+
+(defun ee-info ()
+  (insert "\n")
+  (insert (concat "Status : " (ee-info-running-p)))
+  (insert (format "\nee-queue-total-length : %d" (ee-queue-total-length)))
+  (insert (concat "\nee-queue : " (ee-info-ee-queue))))
+
+
+
 ;;; ----------------------------------------------------------------------------
 ;;;
 ;;; This expression make Emacs echo passwords in shell mode buffers,
@@ -159,7 +178,8 @@
 
 
 (defun ee-queue-clear (buffer)
-  (queue-clear (gethash buffer ee-queue)))
+  (queue-clear (gethash buffer ee-queue))
+  (remhash buffer ee-queue))
 
 
 (defun ee-queue-clear-all ()
@@ -177,8 +197,8 @@
 (defun ee-queue-print (buffer)
   (let* ((elem-list (queue-all (gethash buffer ee-queue))))
 	(dolist (elem elem-list)
-	  (insert
-	   (concat buffer "\t" (car elem) "\n")))))
+	  (insert "\n")
+	  (insert (car elem) ))))
 
 
 
@@ -194,6 +214,9 @@
 		   (hash-table-keys ee-queue)))))
 	sum))
 
+
+(defun ee-queue-length (buffer)
+  (queue-length (gethash buffer ee-queue)))
 
 
 ;;; ==============================
@@ -219,19 +242,22 @@
 			(lambda ()
 			  
 			  (dolist (buffer (hash-table-keys ee-queue))
-				(message buffer)
-				(let* ((q (gethash buffer ee-queue))
-					   (qelem (if q (queue-first q) nil))
-					   (desc (car qelem))
-					   (pred (car (cdr qelem)))
-					   (action (car (cddr qelem)))					   
-					   (pred-result (if pred (funcall pred) nil)))
+				(if (get-buffer buffer)
+					(let* ((q (gethash buffer ee-queue))
+						   (qelem (if q (queue-first q) nil))
+						   (desc (car qelem))
+						   (pred (car (cdr qelem)))
+						   (action (car (cddr qelem)))					   
+						   (pred-result (if pred (funcall pred) nil)))
 
-				  (if pred-result
-					  (progn
-						(funcall action)
-						(queue-dequeue (gethash buffer ee-queue))))))))
+					  (if pred-result
+						  (progn
+							(funcall action)
+							(queue-dequeue (gethash buffer ee-queue)))))
 
+				  ;; if buffer does not exit, clear the buffer queue.
+				  (ee-queue-clear buffer)
+				  ))))
 
 		  ;; (deferred:nextc it
 		  ;; 	(lambda ()
