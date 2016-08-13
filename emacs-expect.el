@@ -253,15 +253,15 @@
 				  (ee-queue-clear buffer)
 				  ))))
 
-		  ;; (deferred:nextc it
-		  ;; 	(lambda ()
-		  ;; 	  (princ "---")))		  
+		  (deferred:nextc it
+		  	(lambda ()
+		  	  (princ "---")))		  
 		  (deferred:nextc it
 			(lambda () 
 			  (deferred:process "sh" "-c" "sleep 1")))
-		  ;; (deferred:nextc it
-		  ;; 	(lambda ()
-		  ;; 	  (princ "***")))
+		  (deferred:nextc it
+		  	(lambda ()
+		  	  (princ "***")))
 		  (deferred:nextc it
 			(lambda () 
 			  (if (= (ee-queue-total-length) 0)
@@ -350,6 +350,9 @@
 	 buffer
 	 (concat (ee-inventory-get-password inventory) "\n"))))
 
+(defun ee-action-true ()
+  (lambda () t))
+
 
 
 ;;; ========================================
@@ -375,8 +378,28 @@
 
 (defstruct automaton
   (current-state 0)
+  (current-rule  0)
   (accept-states '())
-  (machine '()))
+  (transition-table '()))
+
+
+(defun ee-automaton-make-instance (t-table accept)
+  (make-automaton
+   :current-state 0
+   :current-rule 0
+   :accept-states accept
+   :transition-table t-table))
+
+
+(defun ee-automaton-append-rule (machine ss pred action ns)
+  (setf (automaton-transition-table machine)
+		(append (automaton-transition-table machine)
+				(list (list ss pred action ns)))))
+
+
+(defun ee-automaton-set-accept-states (machine accept-states)
+  (setf (automaton-accept-states machine) accept-states))
+
 
 
 ;;; An example of the automaton
@@ -390,43 +413,52 @@
 			(ee-action-password buf "your-password") 0)))
 
 
-(defun ee-automaton-make-instance (machine accept)
-  (make-automaton :current-state 0 :accept-states accept :machine machine))
-
-
-
-;;;
 ;;;
 ;;;
 
-(defun ee-automaton-automaton-pred (machine)
-  (ee-automaton-transite machine)
-  (ee-automaton-accept-p machine))
+
+(defun ee-automaton-pred (machine)
+  (lambda ()
+	  (ee-automaton-transite machine)
+	  (ee-automaton-accept-p machine)))
+
 
 
 (defun ee-automaton-transite (machine)
-  (catch 'break
-	(dolist (item machine)
-	  (let* ((state (nth 0 item))
-			 (pred (nth 1 item))
-			 (action (nth 2 item))
-			 (next-state (nth 3 item)))
-		(if (= (automaton-current-state machine) state)
-			(if (funcall pred)
+	(let* ((t-table (automaton-transition-table machine))
+		   (row (automaton-current-rule machine))
+		   (item (nth row t-table))
+		   (state (nth 0 item))
+		   (pred (nth 1 item))
+		   (action (nth 2 item))
+		   (next-state (nth 3 item)))
+		  (if (= (automaton-current-state machine) state)
+			  (if (funcall pred)
+				  ;; pred is true.
+				  (progn
+					(funcall action)
+					(setf (automaton-current-state machine) next-state)
+					(setf (automaton-current-rule machine) 0))				
+				;; pred is not true.
 				(progn
-				  (funcall action)
-				  (setf (automaton-current-state machine) next-state)
-				  (throw 'break) ;; break
-				  )))))))
+				  (setf (automaton-current-rule machine) (+ row 1))
+				  (if (>= (automaton-current-rule machine) (length t-table))
+					  (setf (automaton-current-rule machine) 0)))
+				))))
 	  
 
 (defun ee-automaton-accept-p (machine)
   (let* ((current-state (automaton-current-state machine))
-		 (accept-states (automaton-accept-states machine)))
-	
-		 (memq current-state accept-state)))
-				  
+		 (accept-states (automaton-accept-states machine)))	
+		 (memq current-state accept-states)))
 
+
+(defun ee-automaton-run (buffer desc machine)
+  (ee-queue-submit buffer desc
+				   (ee-automaton-pred machine)
+				   (ee-action-true))
+  (if (not ee-running-p)
+	  (ee-start)))
 
 
 ;;; ==============================
