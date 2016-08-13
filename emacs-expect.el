@@ -6,7 +6,7 @@
 ;; -------------------------------------------------------------------------
 ;; Emacs expect -- Asynchronous automatic operation of Emacs Shell buffers. 
 
-(defconst emacs-expect-version "1.10")
+(defconst emacs-expect-version "1.10.1")
 
 ;; Copyright (C) 2016 Osamu Ogasawara
 
@@ -362,19 +362,23 @@
 ;;;
 ;;; ========================================
 
-;;; Here, an automaton consists of
-;;; 1. (state pred action next-state) triads list.
-;;; 2. current state
-;;; 3. accept-states
+;; An example of the simple automaton:
+;;
+;; (setq an-example-machine
+;; 	  (ee-automaton-make-instance
+;; 	   ;; transition table
+;; 	   (list
+;; 		(list 0 (ee-pred-match-prompt "*shell*" "\\$ $")
+;; 			   (ee-action-send-command "*shell*" "date") 1)
+;; 		(list 0 (ee-pred-match-prompt "*shell*" "% $")
+;; 			  (ee-action-send-command "*shell*" "bash") 0)
+;; 		(list 0 (ee-pred-match-prompt "*shell*" ">>> $")
+;; 			  (ee-action-send-command "*shell*" "python") 0)
+;; 		(list 0 (ee-pred-match-prompt "*shell*" "your name: $")
+;; 			  (ee-action-send-command "*shell*" "You") 0))
+;; 	   ;; accept states
+;; 	   '(1)))
 
-
-;;; Usage of defstruct in Emacs-Lisp.
-;;; https://curiousprogrammer.wordpress.com/2010/07/19/emacs-defstruct-vs-other-languages/
-;; (defstruct person age name)
-;; (defvar dave (make-person))
-;; (setf (person-age dave) 20) ;; getter specifies the type!
-;; (setf (person-name dave) "David Jones")
-;; (message (person-name dave)) ;; -- David Jones
 
 (defstruct automaton
   (current-state 0)
@@ -401,16 +405,6 @@
   (setf (automaton-accept-states machine) accept-states))
 
 
-
-;;; An example of the automaton
-
-(setq ee-automaton-machine-example
-	  '((0  (ee-pred-match-prompt buf "\\$ $")
-			(ee-action-true) 1)
-		(0  (ee-pred-match-prompt buf "(y/n) $")
-			(ee-action-send-input buf "Y") 0)
-		(0  (ee-pred-match-prompt buf "password- $")
-			(ee-action-password buf "your-password") 0)))
 
 
 ;;;
