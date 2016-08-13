@@ -253,15 +253,15 @@
 				  (ee-queue-clear buffer)
 				  ))))
 
-		  (deferred:nextc it
-		  	(lambda ()
-		  	  (princ "---")))		  
+		  ;; (deferred:nextc it
+		  ;; 	(lambda ()
+		  ;; 	  (princ "---")))		  
 		  (deferred:nextc it
 			(lambda () 
 			  (deferred:process "sh" "-c" "sleep 1")))
-		  (deferred:nextc it
-		  	(lambda ()
-		  	  (princ "***")))
+		  ;; (deferred:nextc it
+		  ;; 	(lambda ()
+		  ;; 	  (princ "***")))
 		  (deferred:nextc it
 			(lambda () 
 			  (if (= (ee-queue-total-length) 0)
