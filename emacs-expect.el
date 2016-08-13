@@ -139,13 +139,14 @@
 
 (defun ee-info-ee-queue ()
   (dolist (buffer (hash-table-keys ee-queue))
-	(insert (concat "\n  " buffer " : " (queue-length (gethash buffer ee-queue))))))
+	(insert (format "\n  %s : %d" buffer (queue-length (gethash buffer ee-queue))))))
 
 (defun ee-info ()
   (insert "\n")
   (insert (concat "Status : " (ee-info-running-p)))
   (insert (format "\nee-queue-total-length : %d" (ee-queue-total-length)))
-  (insert (concat "\nee-queue : " (ee-info-ee-queue))))
+  (insert "\nee-queue : ")
+  (ee-info-ee-queue))
 
 
 
@@ -186,7 +187,7 @@
   (clrhash ee-queue))
 
 
-(defun ee-queue-dequeue (buf)
+(defun ee-queue-dequeue (buffer)
   (queue-dequeue (gethash buffer ee-queue)))
 
 
@@ -205,14 +206,7 @@
 ;;; This function is used in ee-start function
 ;;; to judge whether ee-queue is totally empty or not.
 (defun ee-queue-total-length ()
-  (let ((sum
-		 (-reduce
-		  '+
-		  (-map 
-		   (lambda (buf) 
-			 (if (queue-empty (gethash buf ee-queue)) 0 1))
-		   (hash-table-keys ee-queue)))))
-	sum))
+  (-reduce '+ (-map 'ee-queue-length (hash-table-keys ee-queue))))
 
 
 (defun ee-queue-length (buffer)
