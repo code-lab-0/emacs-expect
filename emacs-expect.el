@@ -73,7 +73,7 @@
 
 ;; 3. Prepareing an encrypted password file.
 ;;
-;; You need to make a ~/.emacs.d/inventory.txt file
+;; You need to make a ~/.emacs.d/ee-inventory.txt file
 ;; which consists of tab-delimited name and password pairs.
 ;;
 ;; --------- ee-pass.txt ------------
@@ -85,7 +85,8 @@
 ;; After creating this file, open this file with Emacs,
 ;; then encrypt it with M-x epa-encrypt-file.
 ;; https://www.gnu.org/software/emacs/manual/html_mono/epa.html
-
+;;
+;; 
 
 ;;; ----------------------------------------------------------------------------
 ;;; Usage
@@ -94,7 +95,8 @@
 ;; 
 ;; (require 'ee-persp)
 ;; (require 'emacs-expect)
-
+;; (ee-inventory-load)
+;; 
 ;; 2. Create a set of windows (perspective).
 ;;
 ;; (ee-persp) 
@@ -102,9 +104,6 @@
 ;; 3. Showing a shell buffer on a window.
 ;;
 ;; (ee-shell "*shell*(mac:1)")
-;;
-;; ;; TIP: This function prints a list of shell buffers which have been opened.
-;; (ee-shell-buffer-list) 
 ;;
 
 ;; 4. Send a command to a shell buffer.
@@ -114,12 +113,9 @@
 ;; 5. Login to other hosts.
 ;;
 ;; (ee-inventory-load)
-;;
-;; ;; TIP: This function prints a list of user-name@host information loaded.
-;; (ee-inventory-print) 
-;;
+;; (ee-inventory-print) ;; prints the user-name@host list.
 ;; (setq buf "*shell*(nig:1)")
-;; (ee-shell buf)
+;; (ee-shell buf) ;; opens up the shell buffer
 ;;
 ;; (ee-run buf  "\\$ $"  "ssh -X gw2.ddbj.nig.ac.jp")
 ;; (ee-run buf  "\\$ $"  "qlogin")
@@ -127,6 +123,25 @@
 ;; (ee-run buf "password: $" "your-account@gw2" 't) 
 ;; (ee-run buf  "\\$ $"  "cd ~/gentoo")
 ;; (ee-run buf  "\\$ $"  "./startprefix")
+
+;;; ----------------------------------------------------------------------
+
+;; (ee-set-current-shell-buffer "*shell*(nig:1)")
+
+(defun ee-make-com (line)
+	(concat "(ee-run buf \"\\\\\$ \$\" "  "\"" line "\")"))
+
+(defun ee-null-line-p (line)
+  (string= line ""))
+
+(defun ee-nl-concat (l1 l2)
+  (concat l1 "\n" l2))
+
+(defun ee-expand ()
+  (interactive)
+  (let ((lines (split-string (buffer-substring-no-properties (region-beginning) (region-end)) "\n")))
+	(insert (cl-reduce 'ee-nl-concat (cl-map 'list 'ee-make-com (cl-remove-if 'ee-null-line-p lines))))))
+
 
 
 
@@ -298,7 +313,7 @@
 (defun ee-run (buffer prompt string &rest password-p)
   (if (not password-p)
 	  (ee-send-command buffer prompt string)
-	(ee-send-password buffer prompt string)))
+	  (ee-send-password buffer prompt string)))
 
 
 (defun ee-send-command (buffer prompt command)
@@ -335,6 +350,26 @@
 	(string-match
 	 (rxt-pcre-to-elisp prompt)
 	 (ee-buffer-tail-chars 100 buffer))))
+
+
+
+(defun ee-pred-match-last-nth-line (buffer regex nth num-chars)
+  (lambda ()
+	(let ((line (last-nth-line (buffer nth num-chars)))
+		  (string-match
+		   (rxt-pcre-to-elisp regex) line)))))
+
+
+
+(defun last-n-lines (buf n max-chars)
+  (let ((lines (split-string (ee-buffer-tail-chars 500 buf) "\n")))
+	(last lines n)))
+
+
+(defun last-nth-line (buf n max-chars)
+  (let ((lines (last-n-lines buf n max-chars)))
+	(car lines)))
+
 
 
 
@@ -467,7 +502,7 @@
 (defun ee-buffer-tail-chars (num-chars buffer)
   (set-buffer buffer)
   (buffer-substring-no-properties 
-   (max (- (point-max) 100) (point-min)) 
+   (max (- (point-max) num-chars) (point-min)) 
    (point-max) ))
 
 
@@ -513,7 +548,7 @@
   (clrhash ee-inventory))
 
 (defun ee-inventory-load ()
-  (ee-inventory-read-file "~/.emacs.d/inventory.txt.gpg"))
+  (ee-inventory-read-file "~/.emacs.d/ee-inventory.txt.gpg"))
 
 
 (defun ee-inventory-print ()
