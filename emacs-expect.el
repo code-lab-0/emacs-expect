@@ -1,14 +1,15 @@
-;;; -*- lexical-binding: t -*-
+;;; emacs-expect.el --- Asynchronous automatic operation on shell buffers. -*- lexical-binding: t -*-
 
-;;; Emacs 24 has optional lexical binding, 
-;;; which can be enabled on a per-buffer basis.
+;; Copyright (C) 2016, 2017 Osamu Ogasawara
 
-;; -------------------------------------------------------------------------
-;; Emacs expect -- Asynchronous automatic operation of Emacs Shell buffers. 
+;; Author: O. Ogasawara <osamu.ogasawara@gmail.com>
+;; Version: 1.11
+;; Package-Requires: ((emacs "24.5) cl-lib queue deferred dash subr-x pcre2el)
+;; Keywords:
+;; URL: https://github.com/code-lab-0/emacs-expect
 
-(defconst emacs-expect-version "1.10")
 
-;; Copyright (C) 2016 Osamu Ogasawara
+;; This file is not part of GNU Emacs.
 
 ;; This program is free software; you can redistribute it and/or modify
 ;; it under the terms of the GNU General Public License as published by
@@ -22,6 +23,10 @@
 
 ;; You should have received a copy of the GNU General Public License
 ;; along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+
+;;; Commentary:
+
 
 
 ;; --------------------------------------------------------------------------
@@ -48,6 +53,7 @@
 ;;              '("melpa" . "http://melpa.milkbox.net/packages/") t)
 ;; (package-initialize)
 
+
 ;; Common Lisp extensions for Emacs.
 (require 'cl-lib)
 
@@ -70,10 +76,13 @@
 (require 'pcre2el)
 
 
+;;
+(setq epg-gpg-program "gpg1")
+
 
 ;; 3. Prepareing an encrypted password file.
 ;;
-;; You need to make a ~/.emacs.d/inventory.txt file
+;; You need to make a ~/.emacs.d/ee-catalog.txt file
 ;; which consists of tab-delimited name and password pairs.
 ;;
 ;; --------- ee-pass.txt ------------
@@ -113,10 +122,10 @@
 
 ;; 5. Login to other hosts.
 ;;
-;; (ee-inventory-load)
+;; (ee-load-catalog)
 ;;
 ;; ;; TIP: This function prints a list of user-name@host information loaded.
-;; (ee-inventory-print) 
+;; (ee-catalog-print) 
 ;;
 ;; (setq buf "*shell*(nig:1)")
 ;; (ee-shell buf)
@@ -129,24 +138,29 @@
 ;; (ee-run buf  "\\$ $"  "./startprefix")
 
 
+(defconst emacs-expect-version "1.10")
 
-(defun ee-info-running-p ()
+
+
+(defun ee-info--running-p ()
   (if ee-running-p "Running" "Stopped"))
 
 
-(defun ee-info-keys-of-ee-queue ()
+(defun ee-info--keys-of-ee-queue ()
   (mapconcat 'identity (hash-table-keys ee-queue) ", "))
 
-(defun ee-info-ee-queue ()
+
+(defun ee-info--ee-queue ()
   (dolist (buffer (hash-table-keys ee-queue))
 	(insert (format "\n  %s : %d" buffer (queue-length (gethash buffer ee-queue))))))
 
+
 (defun ee-info ()
   (insert "\n")
-  (insert (concat "Status : " (ee-info-running-p)))
-  (insert (format "\nee-queue-total-length : %d" (ee-queue-total-length)))
+  (insert (concat "Status : " (ee-info--running-p)))
+  (insert (format "\nee-queue-total-length : %d" (ee-queue--total-length)))
   (insert "\nee-queue : ")
-  (ee-info-ee-queue))
+  (ee-info--ee-queue))
 
 
 
@@ -343,12 +357,12 @@
 	(ee-buffer-send-input buffer command)))
 
 
-(defun ee-action-send-password (buffer inventory)
+(defun ee-action-send-password (buffer catalog)
   (lambda ()
 	(set-buffer buffer)
 	(comint-send-string
 	 buffer
-	 (concat (ee-inventory-get-password inventory) "\n"))))
+	 (concat (ee-catalog-get-password catalog) "\n"))))
 
 
 
@@ -450,17 +464,17 @@
 
 
 ;;; ========================================
-;;;   inventory
-;;;   A map of username@host => password
+;;;   catalog
+;;;   A map of identifier => password
 ;;; ========================================
 
-(set 'ee-inventory (make-hash-table :test #'equal))
+(set 'ee-catalog (make-hash-table :test #'equal))
 
-(defun ee-inventory-get-password (account)
-  (gethash account ee-inventory))
+(defun ee-catalog-get-password (account)
+  (gethash account ee-catalog))
 
-(defun ee-inventory-set-password (account password)
-  (pushhash account password ee-inventory))
+(defun ee-catalog-set-password (account password)
+  (pushhash account password ee-catalog))
 
 
 ;;; ---
@@ -473,27 +487,46 @@
 	    (split-string (buffer-string) "\n" t)))
 
 
-(defun ee-inventory-read-file (filePath)
+(defun ee-catalog-read-file (filePath)
   (dolist (line (ee-file-read-lines filePath))
 	(let* ((kv (split-string line "\t" t))
 		   (key (car kv))
 		   (value (cadr kv)))
-	  (puthash key value ee-inventory)))
+	  (puthash key value ee-catalog)))
   )
 
-(defun ee-inventory-clear()
-  (clrhash ee-inventory))
+(defun ee-catalog-clear()
+  (clrhash ee-catalog))
 
-(defun ee-inventory-load ()
-  (ee-inventory-read-file "~/.emacs.d/inventory.txt.gpg"))
+;;(defun ee-catalog-load ()
+;;  (ee-catalog-read-file "~/.emacs.d/catalog.txt.gpg"))
+(defun ee-catalog-load ()
+  (ee-catalog-read-file "~/.emacs.d/catalog.txt"))
 
 
-(defun ee-inventory-print ()
-  (dolist (account (hash-table-keys ee-inventory))
+(defun ee-catalog-print ()
+  (dolist (account (hash-table-keys ee-catalog))
 	(insert "\n")
 	(insert account)))
 
-	
+
+
+;;; ========================================
+;;;   catalog
+;;;   A map of username@host => password
+;;; ========================================
+
+(set 'ee-catalog (make-hash-table :test #'equal))
+
+(defun ee-catalog-get-password (account)
+  (gethash account ee-catalog))
+
+(defun ee-catalog-set-password (account password)
+  (pushhash account password ee-catalog))
+
+
+
+
 ;;; ----------
 
 (provide 'emacs-expect)

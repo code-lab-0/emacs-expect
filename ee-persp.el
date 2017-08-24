@@ -42,6 +42,12 @@
 
 
 
+
+(defun ee-save-shell (buf)
+  (switch-to-buffer buf)
+  (write-file buf))
+
+
 ;; (defun ee-shell-close (buf-name)
 ;;   (switch-to-buffer buf-name)
 ;;   (ee-run buf-name "\\$ $" "exit")
