@@ -8,7 +8,8 @@
 
 (defconst emacs-expect-version "1.10.1")
 
-;; Copyright (C) 2016 Osamu Ogasawara
+(package-initialize)
+;; Copyright (C) 2016,2017 Osamu Ogasawara
 
 ;; This program is free software; you can redistribute it and/or modify
 ;; it under the terms of the GNU General Public License as published by
@@ -47,6 +48,13 @@
 ;; (add-to-list 'package-archives
 ;;              '("melpa" . "http://melpa.milkbox.net/packages/") t)
 ;; (package-initialize)
+;;
+;; (package-install 'cl-lib)
+;; (package-install 'queue)
+;; (package-install 'deferred)
+;; (package-install 'dash)
+;; (package-install 'subr-x)
+;; (package-install 'pcre2el)
 
 ;; Common Lisp extensions for Emacs.
 (require 'cl-lib)
@@ -77,8 +85,8 @@
 ;; which consists of tab-delimited name and password pairs.
 ;;
 ;; --------- ee-pass.txt ------------
-;; your-account@server01    password-of-server01
-;; your-account@server02    password-of-server02
+;; realm-name1    password-of-server01
+;; realm-name2    password-of-server02
 ;; ...
 ;; ----------------------------------
 ;; 
@@ -124,9 +132,29 @@
 ;; (ee-run buf  "\\$ $"  "cd ~/gentoo")
 ;; (ee-run buf  "\\$ $"  "./startprefix")
 
+
+;; 6. Running a simple automaton:
+;;
+;; (ee-automaton-run "*shell*" "an example of the simple automaton"
+;; 	  (ee-automaton-make-instance
+;; 	   ;; transition table
+;; 	   (list
+;; 		(list 0 (ee-pred-match-prompt "*shell*" "\\$ $")
+;; 			   (ee-action-send-command "*shell*" "date") 1)
+;; 		(list 0 (ee-pred-match-prompt "*shell*" "% $")
+;; 			  (ee-action-send-command "*shell*" "bash") 0)
+;; 		(list 0 (ee-pred-match-prompt "*shell*" ">>> $")
+;; 			  (ee-action-send-command "*shell*" "python") 0)
+;; 		(list 0 (ee-pred-match-prompt "*shell*" "your name: $")
+;; 			  (ee-action-send-command "*shell*" "You") 0))
+;; 	   ;; accept states
+;; 	   '(1)))
+
+
+
 ;;; ----------------------------------------------------------------------
 
-;; (ee-set-current-shell-buffer "*shell*(nig:1)")
+
 
 (defun ee-make-com (line)
 	(concat "(ee-run buf \"\\\\\$ \$\" "  "\"" line "\")"))
@@ -264,7 +292,7 @@
 							(funcall action)
 							(queue-dequeue (gethash buffer ee-queue)))))
 
-				  ;; if buffer does not exit, clear the buffer queue.
+				  ;; if buffer does not exist, clear the buffer queue.
 				  (ee-queue-clear buffer)
 				  ))))
 
