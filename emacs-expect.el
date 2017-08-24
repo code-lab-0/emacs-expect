@@ -8,7 +8,6 @@
 ;; Keywords:
 ;; URL: https://github.com/code-lab-0/emacs-expect
 
-
 ;; This file is not part of GNU Emacs.
 
 ;; This program is free software; you can redistribute it and/or modify
@@ -94,7 +93,8 @@
 ;; After creating this file, open this file with Emacs,
 ;; then encrypt it with M-x epa-encrypt-file.
 ;; https://www.gnu.org/software/emacs/manual/html_mono/epa.html
-
+;;
+;; 
 
 ;;; ----------------------------------------------------------------------------
 ;;; Usage
@@ -103,7 +103,8 @@
 ;; 
 ;; (require 'ee-persp)
 ;; (require 'emacs-expect)
-
+;; (ee-inventory-load)
+;; 
 ;; 2. Create a set of windows (perspective).
 ;;
 ;; (ee-persp) 
@@ -111,9 +112,6 @@
 ;; 3. Showing a shell buffer on a window.
 ;;
 ;; (ee-shell "*shell*(mac:1)")
-;;
-;; ;; TIP: This function prints a list of shell buffers which have been opened.
-;; (ee-shell-buffer-list) 
 ;;
 
 ;; 4. Send a command to a shell buffer.
@@ -128,7 +126,7 @@
 ;; (ee-catalog-print) 
 ;;
 ;; (setq buf "*shell*(nig:1)")
-;; (ee-shell buf)
+;; (ee-shell buf) ;; opens up the shell buffer
 ;;
 ;; (ee-run buf  "\\$ $"  "ssh -X gw2.ddbj.nig.ac.jp")
 ;; (ee-run buf  "\\$ $"  "qlogin")
@@ -136,6 +134,25 @@
 ;; (ee-run buf "password: $" "your-account@gw2" 't) 
 ;; (ee-run buf  "\\$ $"  "cd ~/gentoo")
 ;; (ee-run buf  "\\$ $"  "./startprefix")
+
+;;; ----------------------------------------------------------------------
+
+;; (ee-set-current-shell-buffer "*shell*(nig:1)")
+
+(defun ee-make-com (line)
+	(concat "(ee-run buf \"\\\\\$ \$\" "  "\"" line "\")"))
+
+(defun ee-null-line-p (line)
+  (string= line ""))
+
+(defun ee-nl-concat (l1 l2)
+  (concat l1 "\n" l2))
+
+(defun ee-expand ()
+  (interactive)
+  (let ((lines (split-string (buffer-substring-no-properties (region-beginning) (region-end)) "\n")))
+	(insert (cl-reduce 'ee-nl-concat (cl-map 'list 'ee-make-com (cl-remove-if 'ee-null-line-p lines))))))
+
 
 
 (defconst emacs-expect-version "1.10")
@@ -312,7 +329,7 @@
 (defun ee-run (buffer prompt string &rest password-p)
   (if (not password-p)
 	  (ee-send-command buffer prompt string)
-	(ee-send-password buffer prompt string)))
+	  (ee-send-password buffer prompt string)))
 
 
 (defun ee-send-command (buffer prompt command)
@@ -352,6 +369,26 @@
 
 
 
+(defun ee-pred-match-last-nth-line (buffer regex nth num-chars)
+  (lambda ()
+	(let ((line (last-nth-line (buffer nth num-chars)))
+		  (string-match
+		   (rxt-pcre-to-elisp regex) line)))))
+
+
+
+(defun last-n-lines (buf n max-chars)
+  (let ((lines (split-string (ee-buffer-tail-chars 500 buf) "\n")))
+	(last lines n)))
+
+
+(defun last-nth-line (buf n max-chars)
+  (let ((lines (last-n-lines buf n max-chars)))
+	(car lines)))
+
+
+
+
 (defun ee-action-send-command (buffer command)
   (lambda ()
 	(ee-buffer-send-input buffer command)))
@@ -364,6 +401,9 @@
 	 buffer
 	 (concat (ee-catalog-get-password catalog) "\n"))))
 
+(defun ee-action-true ()
+  (lambda () t))
+
 
 
 ;;; ========================================
@@ -373,74 +413,99 @@
 ;;;
 ;;; ========================================
 
-;;; Here, an automaton consists of
-;;; 1. (state pred action next-state) triads list.
-;;; 2. current state
-;;; 3. accept-states
+;; An example of the simple automaton:
+;;
+;; (ee-automaton-run "*shell*" "an example of the simple automaton"
+;; 	  (ee-automaton-make-instance
+;; 	   ;; transition table
+;; 	   (list
+;; 		(list 0 (ee-pred-match-prompt "*shell*" "\\$ $")
+;; 			   (ee-action-send-command "*shell*" "date") 1)
+;; 		(list 0 (ee-pred-match-prompt "*shell*" "% $")
+;; 			  (ee-action-send-command "*shell*" "bash") 0)
+;; 		(list 0 (ee-pred-match-prompt "*shell*" ">>> $")
+;; 			  (ee-action-send-command "*shell*" "python") 0)
+;; 		(list 0 (ee-pred-match-prompt "*shell*" "your name: $")
+;; 			  (ee-action-send-command "*shell*" "You") 0))
+;; 	   ;; accept states
+;; 	   '(1)))
 
-
-;;; Usage of defstruct in Emacs-Lisp.
-;;; https://curiousprogrammer.wordpress.com/2010/07/19/emacs-defstruct-vs-other-languages/
-;; (defstruct person age name)
-;; (defvar dave (make-person))
-;; (setf (person-age dave) 20) ;; getter specifies the type!
-;; (setf (person-name dave) "David Jones")
-;; (message (person-name dave)) ;; -- David Jones
 
 (defstruct automaton
   (current-state 0)
+  (current-rule  0)
   (accept-states '())
-  (machine '()))
+  (transition-table '()))
 
 
-;;; An example of the automaton
-
-(setq ee-automaton-machine-example
-	  '((0  (ee-pred-match-prompt buf "\\$ $")
-			(ee-action-true) 1)
-		(0  (ee-pred-match-prompt buf "(y/n) $")
-			(ee-action-send-input buf "Y") 0)
-		(0  (ee-pred-match-prompt buf "password- $")
-			(ee-action-password buf "your-password") 0)))
+(defun ee-automaton-make-instance (t-table accept)
+  (make-automaton
+   :current-state 0
+   :current-rule 0
+   :accept-states accept
+   :transition-table t-table))
 
 
-(defun ee-automaton-make-instance (machine accept)
-  (make-automaton :current-state 0 :accept-states accept :machine machine))
+(defun ee-automaton-append-rule (machine ss pred action ns)
+  (setf (automaton-transition-table machine)
+		(append (automaton-transition-table machine)
+				(list (list ss pred action ns)))))
+
+
+(defun ee-automaton-set-accept-states (machine accept-states)
+  (setf (automaton-accept-states machine) accept-states))
+
 
 
 
 ;;;
 ;;;
-;;;
 
-(defun ee-automaton-automaton-pred (machine)
-  (ee-automaton-transite machine)
-  (ee-automaton-accept-p machine))
+
+(defun ee-automaton-pred (machine)
+  (lambda ()
+	  (ee-automaton-transite machine)
+	  (ee-automaton-accept-p machine)))
+
 
 
 (defun ee-automaton-transite (machine)
-  (catch 'break
-	(dolist (item machine)
-	  (let* ((state (nth 0 item))
-			 (pred (nth 1 item))
-			 (action (nth 2 item))
-			 (next-state (nth 3 item)))
-		(if (= (automaton-current-state machine) state)
-			(if (funcall pred)
+	(let* ((t-table (automaton-transition-table machine))
+		   (row (automaton-current-rule machine))
+		   (item (nth row t-table))
+		   (state (nth 0 item))
+		   (pred (nth 1 item))
+		   (action (nth 2 item))
+		   (next-state (nth 3 item)))
+		  (if (= (automaton-current-state machine) state)
+			  (if (funcall pred)
+				  ;; pred is true.
+				  (progn
+					(funcall action)
+					(setf (automaton-current-state machine) next-state)
+					(setf (automaton-current-rule machine) 0))				
+				;; pred is not true.
 				(progn
-				  (funcall action)
-				  (setf (automaton-current-state machine) next-state)
-				  (throw 'break) ;; break
-				  )))))))
+				  (setf (automaton-current-rule machine) (+ row 1))
+				  (if (>= (automaton-current-rule machine) (length t-table))
+					  (setf (automaton-current-rule machine) 0)))
+				))))
 	  
 
 (defun ee-automaton-accept-p (machine)
   (let* ((current-state (automaton-current-state machine))
-		 (accept-states (automaton-accept-states machine)))
-	
-		 (memq current-state accept-state)))
-				  
+		 (accept-states (automaton-accept-states machine)))	
+		 (memq current-state accept-states)))
 
+
+(defun ee-automaton-run (buffer desc machine)
+  ;; initialize the machine before submit it to the ee-queue.
+  (setf (automaton-current-rule machine) 0) 
+  (ee-queue-submit buffer desc
+				   (ee-automaton-pred machine)
+				   (ee-action-true))
+  (if (not ee-running-p)
+	  (ee-start)))
 
 
 ;;; ==============================
@@ -453,7 +518,7 @@
 (defun ee-buffer-tail-chars (num-chars buffer)
   (set-buffer buffer)
   (buffer-substring-no-properties 
-   (max (- (point-max) 100) (point-min)) 
+   (max (- (point-max) num-chars) (point-min)) 
    (point-max) ))
 
 
@@ -498,10 +563,10 @@
 (defun ee-catalog-clear()
   (clrhash ee-catalog))
 
-;;(defun ee-catalog-load ()
-;;  (ee-catalog-read-file "~/.emacs.d/catalog.txt.gpg"))
 (defun ee-catalog-load ()
-  (ee-catalog-read-file "~/.emacs.d/catalog.txt"))
+  (ee-catalog-read-file "~/.emacs.d/ee-catalog.txt.gpg"))
+;;(defun ee-catalog-load ()
+;;  (ee-catalog-read-file "~/.emacs.d/ee-catalog.txt"))
 
 
 (defun ee-catalog-print ()
