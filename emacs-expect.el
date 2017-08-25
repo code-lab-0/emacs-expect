@@ -24,9 +24,11 @@
 ;; along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 
+
+(defconst emacs-expect-version "1.10.1")
+(package-initialize)
+
 ;;; Commentary:
-
-
 
 ;; --------------------------------------------------------------------------
 ;; Installation
@@ -51,6 +53,13 @@
 ;; (add-to-list 'package-archives
 ;;              '("melpa" . "http://melpa.milkbox.net/packages/") t)
 ;; (package-initialize)
+;;
+;; (package-install 'cl-lib)
+;; (package-install 'queue)
+;; (package-install 'deferred)
+;; (package-install 'dash)
+;; (package-install 'subr-x)
+;; (package-install 'pcre2el)
 
 
 ;; Common Lisp extensions for Emacs.
@@ -85,8 +94,8 @@
 ;; which consists of tab-delimited name and password pairs.
 ;;
 ;; --------- ee-pass.txt ------------
-;; your-account@server01    password-of-server01
-;; your-account@server02    password-of-server02
+;; realm-name1    password-of-server01
+;; realm-name2    password-of-server02
 ;; ...
 ;; ----------------------------------
 ;; 
@@ -135,9 +144,29 @@
 ;; (ee-run buf  "\\$ $"  "cd ~/gentoo")
 ;; (ee-run buf  "\\$ $"  "./startprefix")
 
+
+;; 6. Running a simple automaton:
+;;
+;; (ee-automaton-run "*shell*" "an example of the simple automaton"
+;; 	  (ee-automaton-make-instance
+;; 	   ;; transition table
+;; 	   (list
+;; 		(list 0 (ee-pred-match-prompt "*shell*" "\\$ $")
+;; 			   (ee-action-send-command "*shell*" "date") 1)
+;; 		(list 0 (ee-pred-match-prompt "*shell*" "% $")
+;; 			  (ee-action-send-command "*shell*" "bash") 0)
+;; 		(list 0 (ee-pred-match-prompt "*shell*" ">>> $")
+;; 			  (ee-action-send-command "*shell*" "python") 0)
+;; 		(list 0 (ee-pred-match-prompt "*shell*" "your name: $")
+;; 			  (ee-action-send-command "*shell*" "You") 0))
+;; 	   ;; accept states
+;; 	   '(1)))
+
+
+
 ;;; ----------------------------------------------------------------------
 
-;; (ee-set-current-shell-buffer "*shell*(nig:1)")
+
 
 (defun ee-make-com (line)
 	(concat "(ee-run buf \"\\\\\$ \$\" "  "\"" line "\")"))
@@ -152,10 +181,6 @@
   (interactive)
   (let ((lines (split-string (buffer-substring-no-properties (region-beginning) (region-end)) "\n")))
 	(insert (cl-reduce 'ee-nl-concat (cl-map 'list 'ee-make-com (cl-remove-if 'ee-null-line-p lines))))))
-
-
-
-(defconst emacs-expect-version "1.10")
 
 
 
@@ -179,14 +204,6 @@
   (insert "\nee-queue : ")
   (ee-info--ee-queue))
 
-
-
-;;; ----------------------------------------------------------------------------
-;;;
-;;; This expression make Emacs echo passwords in shell mode buffers,
-;;; here this is evaluated in order to be able to send password automatically. 
-;;(remove-hook 'comint-output-filter-functions
-;;			 'comint-watch-for-password-prompt)
 
 
 ;;; ==============================
@@ -236,10 +253,8 @@
 
 ;;; This function is used in ee-start function
 ;;; to judge whether ee-queue is totally empty or not.
-(defun ee-queue-total-length ()
+(defun ee-queue--total-length ()
   (-reduce '+ (-map 'ee-queue-length (hash-table-keys ee-queue))))
-
-
 (defun ee-queue-length (buffer)
   (queue-length (gethash buffer ee-queue)))
 
@@ -280,7 +295,7 @@
 							(funcall action)
 							(queue-dequeue (gethash buffer ee-queue)))))
 
-				  ;; if buffer does not exit, clear the buffer queue.
+				  ;; if buffer does not exist, clear the buffer queue.
 				  (ee-queue-clear buffer)
 				  ))))
 
@@ -353,6 +368,16 @@
 
 
 
+(defun ee-eval-elisp (buffer prompt elisp)
+  (ee-queue-submit
+   buffer
+   "----"
+   (ee-pred-match-prompt buffer prompt)
+   (ee-action-eval-elisp buffer elisp))
+  (if (not ee-running-p)
+	  (ee-start)))
+
+
 ;;; ========================================
 ;;; predicates and actions.
 ;;; ========================================
@@ -388,12 +413,12 @@
 
 
 
-
 (defun ee-action-send-command (buffer command)
   (lambda ()
 	(ee-buffer-send-input buffer command)))
 
 
+<<<<<<< HEAD
 (defun ee-action-send-password (buffer account)
   (lambda ()
 	(set-buffer buffer)
@@ -401,6 +426,34 @@
 	;;(comint-send-string
 	;; buffer
 	;; (concat (ee-catalog-get-password account) "\n"))))
+=======
+(defun ee-action-eval-elisp (buffer func)
+  (lambda ()
+	(set-buffer buffer)
+	(funcall func)))
+
+
+
+;; (defun ee-switch-to-minibuffer ()
+;;   "Switch to minibuffer window."
+;;   (interactive)
+;;   (if (active-minibuffer-window)
+;;       (select-window (active-minibuffer-window))
+;;     (error "Minibuffer is not active")))
+
+
+(defun ee-action-send-password (buffer account)
+  (lambda ()
+	(select-window (active-minibuffer-window))
+	(run-with-timer .2 nil 'insert (ee-get-password account))
+	(run-with-timer .3 nil 'execute-kbd-macro (kbd "RET"))
+	(set-buffer buffer)))
+
+	;;(comint-send-string
+	;; buffer
+	;; (concat (ee-get-password account) "\n"))))
+
+>>>>>>> dcbf59ac5278d1624c608afcfeb35e9f90fe8ba4
 
 (defun ee-action-true ()
   (lambda () t))
@@ -536,11 +589,28 @@
 
 (set 'ee-catalog (make-hash-table :test #'equal))
 
-(defun ee-catalog-get-password (account)
+(defun ee-get-password (account)
   (gethash account ee-catalog))
 
-(defun ee-catalog-set-password (account password)
+
+(defun ee-set-password (account password)
   (pushhash account password ee-catalog))
+
+
+(defun ee-list-accounts ()
+  (dolist (account (hash-table-keys ee-catalog))
+	(insert "\n")
+	(insert account)))
+
+
+(defun ee-clear-accounts()
+  (clrhash ee-catalog))
+
+
+(defun ee-load-accounts (fname)
+  (ee-catalog-read-file fname))
+;;(defun ee-catalog-load ()
+;;  (ee-catalog-read-file "~/.emacs.d/ee-catalog.txt"))
 
 
 ;;; ---
@@ -561,34 +631,6 @@
 	  (puthash key value ee-catalog)))
   )
 
-(defun ee-catalog-clear()
-  (clrhash ee-catalog))
-
-(defun ee-catalog-load ()
-  (ee-catalog-read-file "~/.emacs.d/ee-catalog.txt.gpg"))
-;;(defun ee-catalog-load ()
-;;  (ee-catalog-read-file "~/.emacs.d/ee-catalog.txt"))
-
-
-(defun ee-catalog-print ()
-  (dolist (account (hash-table-keys ee-catalog))
-	(insert "\n")
-	(insert account)))
-
-
-
-;;; ========================================
-;;;   catalog
-;;;   A map of username@host => password
-;;; ========================================
-
-(set 'ee-catalog (make-hash-table :test #'equal))
-
-(defun ee-catalog-get-password (account)
-  (gethash account ee-catalog))
-
-(defun ee-catalog-set-password (account password)
-  (pushhash account password ee-catalog))
 
 
 
