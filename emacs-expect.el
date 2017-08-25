@@ -418,15 +418,6 @@
 	(ee-buffer-send-input buffer command)))
 
 
-<<<<<<< HEAD
-(defun ee-action-send-password (buffer account)
-  (lambda ()
-	(set-buffer buffer)
-	(send-invisible (ee-catalog-get-password account))))
-	;;(comint-send-string
-	;; buffer
-	;; (concat (ee-catalog-get-password account) "\n"))))
-=======
 (defun ee-action-eval-elisp (buffer func)
   (lambda ()
 	(set-buffer buffer)
@@ -453,7 +444,6 @@
 	;; buffer
 	;; (concat (ee-get-password account) "\n"))))
 
->>>>>>> dcbf59ac5278d1624c608afcfeb35e9f90fe8ba4
 
 (defun ee-action-true ()
   (lambda () t))
