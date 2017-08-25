@@ -25,7 +25,7 @@
 
 
 
-(defconst emacs-expect-version "1.10.1")
+(defconst emacs-expect-version "1.11.0")
 (package-initialize)
 
 ;;; Commentary:
