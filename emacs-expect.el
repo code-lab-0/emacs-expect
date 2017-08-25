@@ -76,7 +76,7 @@
 
 
 ;;
-(setq epg-gpg-program "gpg1")
+;;(setq epg-gpg-program "gpg1")
 
 
 ;; 3. Prepareing an encrypted password file.
@@ -175,7 +175,7 @@
 (defun ee-info ()
   (insert "\n")
   (insert (concat "Status : " (ee-info--running-p)))
-  (insert (format "\nee-queue-total-length : %d" (ee-queue--total-length)))
+  (insert (format "\nee-queue-total-length : %d" (ee-queue-total-length)))
   (insert "\nee-queue : ")
   (ee-info--ee-queue))
 
@@ -185,8 +185,8 @@
 ;;;
 ;;; This expression make Emacs echo passwords in shell mode buffers,
 ;;; here this is evaluated in order to be able to send password automatically. 
-(remove-hook 'comint-output-filter-functions
-			 'comint-watch-for-password-prompt)
+;;(remove-hook 'comint-output-filter-functions
+;;			 'comint-watch-for-password-prompt)
 
 
 ;;; ==============================
@@ -344,7 +344,7 @@
 
 (defun ee-send-password (buffer prompt account)
   (ee-queue-submit buffer
-			 "********"
+			 "send-invisible"
 			 (ee-pred-match-prompt buffer prompt)
 			 (ee-action-send-password buffer account))
 
@@ -394,12 +394,13 @@
 	(ee-buffer-send-input buffer command)))
 
 
-(defun ee-action-send-password (buffer catalog)
+(defun ee-action-send-password (buffer account)
   (lambda ()
 	(set-buffer buffer)
-	(comint-send-string
-	 buffer
-	 (concat (ee-catalog-get-password catalog) "\n"))))
+	(send-invisible (ee-catalog-get-password account))))
+	;;(comint-send-string
+	;; buffer
+	;; (concat (ee-catalog-get-password account) "\n"))))
 
 (defun ee-action-true ()
   (lambda () t))
