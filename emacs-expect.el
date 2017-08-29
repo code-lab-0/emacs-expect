@@ -166,7 +166,26 @@
 
 ;;; ----------------------------------------------------------------------
 
+(defun ee-qelem-get-desc (qelem)
+  (nth 0 qelem))
 
+
+(defun ee-qelem-get-pred (qelem)
+  (nth 1 qelem))
+
+
+(defun ee-qelem-get-action (qelem)
+  (nth 2 qelem))
+
+
+(defun ee-qelem-get-tags (qelem)
+  (nth 3 qelem))
+
+
+
+
+
+;;; ----------------------------------------------------------------------
 
 (defun ee-make-com (line)
 	(concat "(ee-run buf \"\\\\\$ \$\" "  "\"" line "\")"))
@@ -184,25 +203,27 @@
 
 
 
-(defun ee-info--running-p ()
+(defun ee-info-running-p ()
   (if ee-running-p "Running" "Stopped"))
 
 
-(defun ee-info--keys-of-ee-queue ()
+(defun ee-info-keys-of-ee-queue ()
   (mapconcat 'identity (hash-table-keys ee-queue) ", "))
 
 
-(defun ee-info--ee-queue ()
+(defun ee-info-ee-queue ()
   (dolist (buffer (hash-table-keys ee-queue))
 	(insert (format "\n  %s : %d" buffer (queue-length (gethash buffer ee-queue))))))
 
 
 (defun ee-info ()
   (insert "\n")
-  (insert (concat "Status : " (ee-info--running-p)))
+  (insert (concat "Status : " (ee-info-running-p)))
   (insert (format "\nee-queue-total-length : %d" (ee-queue-total-length)))
   (insert "\nee-queue : ")
-  (ee-info--ee-queue))
+  (ee-info-ee-queue))
+
+
 
 
 
@@ -218,20 +239,20 @@
 (set 'ee-queue (make-hash-table :test #'equal))
 
 
-(defun ee-queue-submit (buffer desc pred action)
+(defun ee-queue-submit (buffer desc pred action tags)
   "This function submit a job to the job queue (ee-queue)."
   (if (not (gethash buffer ee-queue))
 	  (puthash buffer (make-queue) ee-queue))
 
-  (queue-enqueue (gethash buffer ee-queue) (list desc pred action)))
+  (queue-enqueue (gethash buffer ee-queue) (list desc pred action tags)))
 
 
-(defun ee-queue-clear (buffer)
+(defun ee-queue-empty (buffer)
   (queue-clear (gethash buffer ee-queue))
   (remhash buffer ee-queue))
 
 
-(defun ee-queue-clear-all ()
+(defun ee-queue-empty-all ()
   (clrhash ee-queue))
 
 
@@ -239,21 +260,50 @@
   (queue-dequeue (gethash buffer ee-queue)))
 
 
+(defun ee-queue-first (buffer)
+  (queue-first (gethash buffer ee-queue)))
+
+
+(defun ee-queue-prepend (buffer qelem)
+  (queue-prepend (gethash buffer ee-queue) qelem))
+
+
+(defun ee-queue-dequeue-until (buffer desc-rxt)
+  (let ((qelem (ee-queue-dequeue buffer)))
+	(while (and qelem
+				(not (string-match
+					  (rxt-pcre-to-elisp desc-rxt)
+					  (ee-qelem-get-desc qelem))))
+	  (setq qelem (ee-queue-dequeue buffer)))
+	(if (not (null qelem))
+		(ee-queue-prepend buffer qelem))))
+
+
 (defun ee-queue-print-buffers ()
-  (hash-table-keys ee-queue))
+  (dolist (buf (hash-table-keys ee-queue))
+	(insert "\n")
+	(insert buf)))
 
 
-(defun ee-queue-print (buffer)
+(defun ee-queue-print-jobs (buffer)
   (let* ((elem-list (queue-all (gethash buffer ee-queue))))
 	(dolist (elem elem-list)
 	  (insert "\n")
 	  (insert (car elem) ))))
 
 
+(defun ee-queue-get-job-names (buffer)
+  (let ((elem-list (queue-all (gethash buffer ee-queue)))
+		(job-names '()))
+	(dolist (elem elem-list)
+	  (setq job-names (cons (ee-qelem-get-desc elem) job-names)))
+	(setq job-names (reverse job-names))))
+
+
 
 ;;; This function is used in ee-start function
 ;;; to judge whether ee-queue is totally empty or not.
-(defun ee-queue--total-length ()
+(defun ee-queue-total-length ()
   (-reduce '+ (-map 'ee-queue-length (hash-table-keys ee-queue))))
 (defun ee-queue-length (buffer)
   (queue-length (gethash buffer ee-queue)))
@@ -296,7 +346,7 @@
 							(queue-dequeue (gethash buffer ee-queue)))))
 
 				  ;; if buffer does not exist, clear the buffer queue.
-				  (ee-queue-clear buffer)
+				  (ee-queue-empty buffer)
 				  ))))
 
 		  ;; (deferred:nextc it
@@ -326,7 +376,7 @@
 
 (defun ee-init ()
   (ee-stop)
-  (ee-queue-clear-all))
+  (ee-queue-empty-all))
 
 
 
@@ -338,44 +388,67 @@
 ;;;
 ;;; ========================================
 
+(nth 3 '(a b))
 
-;;; submit and start functions.
+(if (null (nth 3 '(a b))) "unhit" "hit")
 
-(defun ee-run (buffer prompt string &rest password-p)
-  (if (not password-p)
-	  (ee-send-command buffer prompt string)
-	  (ee-send-password buffer prompt string)))
+;;; submit and start.
 
-
-(defun ee-send-command (buffer prompt command)
-  (ee-queue-submit
-   buffer
-   command
-   (ee-pred-match-prompt buffer prompt)
-   (ee-action-send-command buffer command))
-  (if (not ee-running-p)
-	  (ee-start)))
-
-
-(defun ee-send-password (buffer prompt account)
-  (ee-queue-submit buffer
-			 "send-invisible"
-			 (ee-pred-match-prompt buffer prompt)
-			 (ee-action-send-password buffer account))
-
+(defun ee-run (buffer prompt string &rest inst-desc-tags)
+  (let ((inst (nth 0 inst-desc-tags))
+		(desc (nth 1 inst-desc-tags))
+		(tags (nth 2 inst-desc-tags)))
+	(print inst)
+	(cond ((null inst)
+		   (ee-send-command buffer prompt string desc tags))
+		  ((string= inst "c") ;; instruction is "command"
+		   (ee-send-command buffer prompt string desc tags))
+		  ((string= inst "p") ;; instruction is "password"
+		   (ee-send-password buffer prompt string desc tags))
+		  ((string= inst "l") ;; instruction is "elisp"
+		   (ee-eval-elisp buffer prompt string desc tags))))
   (if (not ee-running-p)
 	  (ee-start)))
 
 
 
-(defun ee-eval-elisp (buffer prompt elisp)
-  (ee-queue-submit
-   buffer
-   "----"
-   (ee-pred-match-prompt buffer prompt)
-   (ee-action-eval-elisp buffer elisp))
-  (if (not ee-running-p)
-	  (ee-start)))
+(defun ee-send-command (buffer prompt command &optional desc tags)
+  (progn
+	(if (not desc) (setq desc command))
+	(if (not tags) (setq tags '()))
+	(ee-queue-submit
+	 buffer
+	 desc
+	 (ee-pred-match-prompt buffer prompt)
+	 (ee-action-send-command buffer command)
+	 tags)))
+
+
+
+(defun ee-send-password (buffer prompt account &optional desc tags)
+  (progn
+	(if (not desc) (setq desc "send an invisible string."))
+	(if (not tags) (setq tags '()))
+	(ee-queue-submit
+	 buffer
+	 desc
+	 (ee-pred-match-prompt buffer prompt)
+	 (ee-action-send-password buffer account)
+	 tags)))
+
+
+
+(defun ee-eval-elisp (buffer prompt elisp &optional desc tags)
+  (progn
+	(if (not desc) (setq desc "eval elisp."))
+	(if (not tags) (setq tags '()))
+	(ee-queue-submit
+	 buffer
+	 desc
+	 (ee-pred-match-prompt buffer prompt)
+	 (ee-action-eval-elisp buffer elisp)
+	 tags)))
+
 
 
 ;;; ========================================
@@ -425,12 +498,6 @@
 
 
 
-;; (defun ee-switch-to-minibuffer ()
-;;   "Switch to minibuffer window."
-;;   (interactive)
-;;   (if (active-minibuffer-window)
-;;       (select-window (active-minibuffer-window))
-;;     (error "Minibuffer is not active")))
 
 
 (defun ee-action-send-password (buffer account)
@@ -542,15 +609,24 @@
 		 (memq current-state accept-states)))
 
 
-(defun ee-automaton-run (buffer desc machine)
+
+(defun ee-automaton-submit (buffer machine &optional desc tags)
   ;; initialize the machine before submit it to the ee-queue.
   (setf (automaton-current-rule machine) 0) 
   (ee-queue-submit buffer desc
 				   (ee-automaton-pred machine)
-				   (ee-action-true))
-  (if (not ee-running-p)
-	  (ee-start)))
+				   (ee-action-true)
+				   tags))
 
+
+
+(defun ee-automaton-run (buffer machine &rest desc-tags)
+  ;; initialize the machine before submit it to the ee-queue.
+  (let ((desc (nth 0 desc-tags))
+		(tags (nth 1 desc-tags)))
+	(ee-automaton-submit buffer machine desc tags)
+	(if (not ee-running-p)
+		(ee-start))))
 
 ;;; ==============================
 ;;;
@@ -564,6 +640,26 @@
   (buffer-substring-no-properties 
    (max (- (point-max) num-chars) (point-min)) 
    (point-max) ))
+
+
+
+(defun ee-get-last-result (buffer &rest regex)
+  (if (null regex) (setq regex "^\$ $"))
+  (let ((result
+		 (progn
+		   (set-buffer buffer)
+		   (dotimes (i 2)
+			 (previous-line))
+		   (buffer-substring-no-properties
+			(max (point-min) (re-search-backward (rxt-pcre-to-elisp regex)))
+			(point-max)))))
+	(goto-char (point-max))
+	result))
+
+
+(defun ee-search-in-last-result (buffer regex)
+	(string-match (rxt-pcre-to-elisp regex) (ee-get-last-result buffer)))
+
 
 
 (defun ee-buffer-send-input (buffer command)

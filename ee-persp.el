@@ -43,7 +43,7 @@
 
 
 
-(defun ee-save-shell (buf)
+(defun ee-save-shell-buffer (buf)
   (switch-to-buffer buf)
   (write-file buf))
 
