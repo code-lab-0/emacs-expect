@@ -200,7 +200,7 @@
 (defun ee-info ()
   (insert "\n")
   (insert (concat "Status : " (ee-info--running-p)))
-  (insert (format "\nee-queue-total-length : %d" (ee-queue-total-length)))
+  (insert (format "\nee-queue--total-length : %d" (ee-queue--total-length)))
   (insert "\nee-queue : ")
   (ee-info--ee-queue))
 
@@ -310,7 +310,7 @@
 		  ;; 	  (princ "***")))
 		  (deferred:nextc it
 			(lambda () 
-			  (if (= (ee-queue-total-length) 0)
+			  (if (= (ee-queue--total-length) 0)
 				  (setq ee-running-p nil))))
 		  (if ee-running-p
 			  (deferred:nextc it self)
