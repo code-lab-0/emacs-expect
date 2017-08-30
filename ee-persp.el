@@ -33,7 +33,7 @@
 
 
 
-(defun ee-shell (buf-name)
+(defun ee-open-shell (buf-name)
   (progn
 	(if (> (/ (window-height) (frame-height)) 0.5)
 		(select-window (nth 2 (window-list)))
@@ -42,10 +42,26 @@
 
 
 
+(defun ee-save-shell-buffer (buffer outfile)
+  (let ((cb (current-buffer)))
+	 (switch-to-buffer buffer)
+	 (kill-ring-save (point-min) (point-max))
+	
+	 (find-file outfile)
+	 (goto-char (point-max))
+	 (yank)
+	 (save-buffer)
+	 (kill-buffer)
 
-(defun ee-save-shell (buf)
-  (switch-to-buffer buf)
-  (write-file buf))
+	 (switch-to-buffer cb)
+	 ))
+
+
+
+
+;; (defun ee-save-shell-buffer (buf)
+;;   (switch-to-buffer buf)
+;;   (write-file buf))
 
 
 ;; (defun ee-shell-close (buf-name)
