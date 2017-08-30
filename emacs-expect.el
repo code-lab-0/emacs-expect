@@ -83,6 +83,10 @@
 ;; https://github.com/joddie/pcre2el
 (require 'pcre2el)
 
+;; elisp namespaces package.
+(unless (package-installed-p 'namespaces)
+  (package-install 'namespaces))
+(require 'namespaces)
 
 ;;
 ;;(setq epg-gpg-program "gpg1")
